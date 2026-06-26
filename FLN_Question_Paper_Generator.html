@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLN Math Question Paper Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#111;font-size:14px;}
+#sidebar{position:fixed;left:0;top:0;bottom:0;width:270px;background:#1a1a2e;overflow-y:auto;z-index:100;}
+#sidebar-header{background:#16213e;padding:14px 16px;border-bottom:2px solid #e94560;position:sticky;top:0;z-index:10;}
+#sidebar-header h1{font-size:14px;font-weight:800;color:#e94560;}
+#sidebar-header p{font-size:10px;color:#aaa;margin-top:3px;}
+.cls-label{font-size:9px;font-weight:800;letter-spacing:2px;color:#e94560;text-transform:uppercase;padding:10px 14px 4px;}
+.lvl-btn{display:flex;align-items:center;width:100%;background:none;border:none;color:#bbb;padding:6px 14px;cursor:pointer;font-size:12px;gap:8px;text-align:left;transition:all .12s;}
+.lvl-btn:hover{background:#0f3460;color:#fff;}
+.lvl-btn.active{background:#e94560;color:#fff;font-weight:700;}
+.lvl-num{background:#0f3460;color:#e94560;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:800;flex-shrink:0;min-width:28px;text-align:center;}
+.lvl-btn.active .lvl-num{background:rgba(255,255,255,.25);color:#fff;}
+
+#main{margin-left:270px;min-height:100vh;display:flex;flex-direction:column;}
+#topbar{background:#fff;border-bottom:2px solid #ddd;padding:10px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:50;}
+#topbar h2{font-size:13px;font-weight:700;flex:1;min-width:160px;color:#1a1a2e;}
+.sl-tabs{display:flex;gap:5px;}
+.sl-tab{background:#f0f0f0;border:1.5px solid #ccc;border-radius:5px;padding:4px 12px;font-size:11px;cursor:pointer;font-weight:700;transition:all .12s;}
+.sl-tab:hover{border-color:#e94560;color:#e94560;}
+.sl-tab.active{background:#e94560;color:#fff;border-color:#e94560;}
+.qc-wrap{display:flex;align-items:center;gap:5px;font-size:12px;}
+.qc-wrap input{width:50px;border:1.5px solid #ccc;border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;}
+.tbtn{background:#1a1a2e;color:#fff;border:none;border-radius:5px;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:700;}
+.tbtn:hover{background:#e94560;}
+.tbtn.out{background:#fff;color:#1a1a2e;border:1.5px solid #1a1a2e;}
+.tbtn.out:hover{background:#1a1a2e;color:#fff;}
+.tbtn.pdf{background:#0f3460;}
+.tbtn.pdf:hover{background:#e94560;}
+.tbtn:disabled{opacity:.4;cursor:not-allowed;}
+
+#infobar{background:#fff;border-bottom:1px solid #eee;padding:7px 18px;font-size:11px;color:#666;display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+.ipill{background:#f5f5f5;border:1px solid #ddd;border-radius:12px;padding:2px 10px;font-size:10.5px;}
+.ipill b{color:#e94560;}
+
+#paper-area{flex:1;padding:20px;display:flex;justify-content:center;background:#f0f2f5;}
+#pw{width:210mm;max-width:100%;}
+
+/* PAPER STYLES */
+.paper{background:#fff;width:210mm;padding:12mm 14mm;box-shadow:0 4px 24px rgba(0,0,0,.15);}
+.ph{text-align:center;border-bottom:3px double #000;padding-bottom:10px;margin-bottom:10px;}
+.ph-school{font-size:12px;font-weight:700;letter-spacing:.5px;}
+.ph-title{font-size:19px;font-weight:900;margin:3px 0;}
+.ph-sub{font-size:12px;font-weight:700;}
+.ph-meta{display:flex;justify-content:space-between;margin-top:8px;font-size:11.5px;flex-wrap:wrap;gap:4px;}
+.ph-meta .mf{border-bottom:1.5px solid #000;padding-bottom:1px;min-width:110px;}
+
+.sec-hdr{background:#000;color:#fff;padding:3px 10px;font-size:11px;font-weight:800;margin:12px 0 6px;letter-spacing:.5px;}
+.q-instr{font-size:10.5px;font-style:italic;margin-bottom:6px;color:#444;}
+
+.qrow{margin:6px 0;font-size:12px;display:flex;gap:7px;align-items:flex-start;page-break-inside:avoid;}
+.qn{font-weight:800;flex-shrink:0;min-width:20px;}
+.qb{flex:1;line-height:1.6;}
+
+/* VISUAL elements */
+.obj-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:3px 0;}
+.obj-box{border:2px solid #000;padding:5px 8px;min-width:60px;min-height:44px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-wrap:wrap;gap:2px;line-height:1.3;}
+.obj-box.big{min-width:80px;min-height:60px;font-size:20px;}
+.bl{display:inline-block;border-bottom:1.5px solid #000;min-width:38px;margin:0 2px;vertical-align:bottom;}
+.vsum{display:inline-flex;flex-direction:column;align-items:flex-end;border:1.5px solid #000;padding:3px 10px;margin:3px 6px;font-size:12.5px;line-height:1.9;min-width:60px;}
+.vop{font-weight:800;}
+.vl{border-top:1.5px solid #000;width:100%;margin-top:2px;}
+
+.nl-wrap{display:flex;align-items:center;margin:5px 0;flex-wrap:wrap;gap:0;}
+.nl-cell{border:1.5px solid #000;width:30px;height:26px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+.nl-blank{background:#f8f8f8;}
+
+.mcq-opts{display:flex;gap:12px;flex-wrap:wrap;margin-top:3px;}
+.mcq-o{font-size:11.5px;display:flex;align-items:center;gap:3px;}
+.mcq-c{display:inline-block;width:13px;height:13px;border:1.5px solid #000;border-radius:50%;}
+
+/* Match */
+.match-wrap{display:flex;gap:30px;margin:5px 0;}
+.match-col{flex:1;}
+.match-item{display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px;}
+.match-dot{width:10px;height:10px;border:1.5px solid #000;border-radius:50%;flex-shrink:0;}
+
+/* Grid for objects */
+.emoji-grid{display:flex;flex-wrap:wrap;gap:3px;font-size:18px;line-height:1.3;max-width:200px;}
+
+/* Table */
+.dtable{border-collapse:collapse;font-size:11.5px;margin:5px 0;}
+.dtable th,.dtable td{border:1.5px solid #000;padding:4px 10px;text-align:center;}
+.dtable th{background:#000;color:#fff;}
+
+/* Pictograph row */
+.prow{display:flex;align-items:center;gap:6px;margin:3px 0;font-size:12px;}
+.pname{min-width:60px;font-weight:700;}
+
+/* Shape draw box */
+.draw-box{border:1.5px dashed #888;width:80px;height:70px;display:inline-block;vertical-align:middle;margin:0 8px;font-size:9px;color:#aaa;display:inline-flex;align-items:center;justify-content:center;}
+
+.pf{margin-top:14px;border-top:1.5px solid #000;padding-top:5px;font-size:10px;text-align:center;color:#666;}
+
+#empty{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#888;padding:40px;text-align:center;}
+#empty .ei{font-size:60px;}
+#empty h3{font-size:18px;font-weight:700;color:#555;}
+
+#spin{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;align-items:center;justify-content:center;}
+#spin.show{display:flex;}
+.sbox{background:#fff;border-radius:10px;padding:26px 36px;text-align:center;}
+.sring{width:40px;height:40px;border:4px solid #eee;border-top:4px solid #e94560;border-radius:50%;animation:sp .7s linear infinite;margin:0 auto 10px;}
+@keyframes sp{to{transform:rotate(360deg);}}
+
+@media print{
+  #sidebar,#topbar,#infobar,.np{display:none!important;}
+  #main{margin-left:0;}
+  #paper-area{padding:0;background:#fff;}
+  #pw{width:100%;}
+  .paper{box-shadow:none;border:none;width:100%;padding:6mm 8mm;}
+  @page{size:A4;margin:5mm;}
+}
+</style>
+</head>
+<body>
+<div id="spin"><div class="sbox"><div class="sring"></div><div id="smsg" style="font-size:13px;font-weight:600;color:#333;">Generating…</div></div></div>
+
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>📐 FLN Question Generator</h1>
+    <p>Zero cost · Works offline · All 40 levels</p>
+  </div>
+  <div id="lvl-list"></div>
+</div>
+
+<div id="main">
+  <div id="topbar">
+    <h2 id="ttitle">← Select a level from the left panel</h2>
+    <div class="sl-tabs" id="sl-tabs"></div>
+    <div class="qc-wrap np">
+      <label style="font-size:11px;font-weight:700;">Questions:</label>
+      <input type="number" id="qcount" value="10" min="5" max="40">
+    </div>
+    <button class="tbtn np" id="gbtn" disabled onclick="generatePaper()">⚡ Generate Paper</button>
+    <button class="tbtn out np" id="pbtn" disabled onclick="window.print()">🖨️ Print</button>
+    <button class="tbtn pdf np" id="dfbtn" disabled onclick="exportPDF()">📄 PDF</button>
+  </div>
+  <div id="infobar"><span style="color:#aaa;font-style:italic;">Select any level to begin</span></div>
+  <div id="paper-area">
+    <div id="empty">
+      <div class="ei">📝</div>
+      <h3>FLN Question Paper Generator</h3>
+      <p style="max-width:340px;font-size:13px;">Choose any level → pick difficulty → set question count → click Generate.<br></p>
+    </div>
+    <div id="pw" style="display:none;"><div class="paper" id="paper"></div></div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════
+function ri(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
+function pick(arr){return arr[ri(0,arr.length-1)];}
+function sh(arr){const r=[...arr];for(let i=r.length-1;i>0;i--){const j=ri(0,i);[r[i],r[j]]=[r[j],r[i]];}return r;}
+
+// Generate N UNIQUE questions using a factory function
+// factory(index) returns an object {key, html} 
+// key is used to deduplicate
+function makeUnique(factory, needed, maxTries){
+  const used=new Set(), out=[];
+  let tries=0;
+  maxTries=maxTries||needed*30;
+  while(out.length<needed && tries<maxTries){
+    tries++;
+    const q=factory();
+    if(!used.has(q.key)){used.add(q.key);out.push(q);}
+  }
+  // If still not enough, relax dedup and fill
+  while(out.length<needed){
+    out.push(factory());
+  }
+  return out;
+}
+
+const FRUITS  =['🍎','🍊','🍋','🍇','🍓','🥭','🍌','🍑','🫐','🍈'];
+const ANIMALS =['🐄','🐔','🐟','🐦','🐘','🐕','🐈','🦋','🐓','🐢'];
+const OBJECTS =['📚','✏️','🎒','⭐','🌸','🌙','🏠','🎈','🪁','🎯'];
+const VEGGIES =['🥕','🧅','🥦','🍅','🌽','🥔','🫛','🧄','🥒','🌶️'];
+const SHAPES2D=['circle','square','triangle','rectangle','pentagon','hexagon','oval'];
+const NAMES   =['Raju','Meena','Priya','Arjun','Deepa','Karan','Sita','Rahul','Ananya','Rohan','Kavya','Aarav','Tara','Mohan'];
+const FOODS   =['mangoes','apples','laddoos','bananas','toffees','guavas','oranges','cookies','biscuits'];
+const ITEMS   =['pencils','flowers','marbles','crayons','stickers','books','coins','balls','erasers'];
+
+function pname(){return pick(NAMES);}
+function picon(){return pick([...FRUITS,...ANIMALS,...OBJECTS,...VEGGIES]);}
+function pfood(){return pick(FOODS);}
+function pitem(){return pick(ITEMS);}
+
+function em(icon,n){return Array(n).fill(icon).join('');}
+function bl(w){return `<span class="bl" style="min-width:${w||36}px;">&nbsp;</span>`;}
+function vs(a,b,op){
+  op=op||'+';
+  return `<span class="vsum"><span>${a}</span><span class="vop">${op}&nbsp;${b}</span><span class="vl"></span><span style="min-width:36px;">&nbsp;&nbsp;&nbsp;</span></span>`;
+}
+function mcq(q,opts){
+  const L=['A','B','C','D'];
+  const o=sh(opts).slice(0,4);
+  return q+'<div class="mcq-opts">'+o.map((x,i)=>`<span class="mcq-o"><span class="mcq-c"></span>${L[i]}) ${x}</span>`).join('')+'</div>';
+}
+function nline(nums){
+  return '<div class="nl-wrap">'+nums.map(n=>
+    n===null?`<div class="nl-cell nl-blank">&nbsp;&nbsp;&nbsp;</div>`:`<div class="nl-cell">${n}</div>`
+  ).join('')+'</div>';
+}
+function obox(icon,n,big){
+  return `<div class="obj-box${big?' big':''}">${em(icon,n)}</div>`;
+}
+function drawbox(label){
+  return `<span class="draw-box">${label||'draw here'}</span>`;
+}
+
+// ══════════════════════════════════════════════
+// LEVEL DATABASE
+// ══════════════════════════════════════════════
+const LEVELS=[
+  {id:1, cls:'Class 1', title:'Quantity Comparison',        topic:'More / Less / Equal using objects'},
+  {id:2, cls:'Class 1', title:'Odd One Out',                topic:'Classification & differentiation'},
+  {id:3, cls:'Class 1', title:'Sorting & Grouping',         topic:'Sort by size, colour, shape'},
+  {id:4, cls:'Class 1', title:'Numbers 1–10',               topic:'Read, write, count 1–10'},
+  {id:5, cls:'Class 1', title:'Finger Counting',            topic:'Count with fingers & objects'},
+  {id:6, cls:'Class 1', title:'Before, After, Between',     topic:'Number sequence positions'},
+  {id:7, cls:'Class 1', title:'Addition (Objects 1–10)',    topic:'Combine groups, total ≤ 10'},
+  {id:8, cls:'Class 1', title:'Subtraction (1–10)',         topic:'Remove from group, within 10'},
+  {id:9, cls:'Class 1', title:'Pattern Recognition',        topic:'Repeating shapes & number patterns'},
+  {id:10,cls:'Class 1', title:'Comparison – Numerals',      topic:'Compare numbers using < > ='},
+  {id:11,cls:'Class 1', title:'Review (1–10)',               topic:'Mixed review of Levels 1–10'},
+  {id:12,cls:'Class 1', title:'Tens and Ones',              topic:'Place value – tens and ones'},
+  {id:13,cls:'Class 1', title:'Numbers 11–30',              topic:'Read, write, count 11–30'},
+  {id:14,cls:'Class 1', title:'Counting & Trace',           topic:'Count objects, trace numerals'},
+  {id:15,cls:'Class 1', title:'Mixed (1–30)',               topic:'Mixed number skills up to 30'},
+  {id:16,cls:'Class 1', title:'Addition (1–30)',            topic:'2-digit addition without carry'},
+  {id:17,cls:'Class 1', title:'Subtraction (1–30)',         topic:'2-digit subtraction without borrow'},
+  {id:18,cls:'Class 1', title:'Ordering Numbers',           topic:'Ascending & descending order'},
+  {id:19,cls:'Class 2', title:'Numbers 31–50',              topic:'Read, write, count 31–50'},
+  {id:20,cls:'Class 2', title:'Skip Counting 2s & 3s',      topic:'Skip count by 2s and 3s'},
+  {id:21,cls:'Class 2', title:'Comparison (1–50)',          topic:'Compare numbers up to 50'},
+  {id:22,cls:'Class 2', title:'Addition & Subtraction Mix', topic:'Mixed operations within 50'},
+  {id:23,cls:'Class 2', title:'Review (1–50)',              topic:'Mixed review up to 50'},
+  {id:24,cls:'Class 2', title:'2D Shapes',                  topic:'Sides, corners, shape names'},
+  {id:25,cls:'Class 2', title:'Measurement Intro',          topic:'Long/short, heavy/light, compare'},
+  {id:26,cls:'Class 2', title:'Numbers 51–100',             topic:'Read, write, count 51–100'},
+  {id:27,cls:'Class 2', title:'Addition/Subtraction ≤100',  topic:'Operations within 100'},
+  {id:28,cls:'Class 2', title:'Multiplication Intro',       topic:'Repeated addition, groups of'},
+  {id:29,cls:'Class 2', title:'Division Intro',             topic:'Share equally, grouping'},
+  {id:30,cls:'Class 2', title:'Fractions (½ & ¼)',         topic:'Half and quarter of shapes/sets'},
+  {id:31,cls:'Class 2', title:'Time',                       topic:'Days, hours, o\'clock, half past'},
+  {id:32,cls:'Class 2', title:'Measurement (Standard)',     topic:'cm/m, kg/g, litre/ml basics'},
+  {id:33,cls:'Class 3', title:'Numbers up to 1000',         topic:'Read, write, compare 3-digit numbers'},
+  {id:34,cls:'Class 3', title:'3-Digit Add & Subtract',     topic:'Operations with 3-digit numbers'},
+  {id:35,cls:'Class 3', title:'Multiplication Tables',      topic:'Tables of 2–10, word problems'},
+  {id:36,cls:'Class 3', title:'Division Facts',             topic:'Division, link with multiplication'},
+  {id:37,cls:'Class 3', title:'Fractions (Class 3)',        topic:'Unit fractions, compare, add/sub'},
+  {id:38,cls:'Class 3', title:'Geometry',                   topic:'Lines, angles, 2D & 3D shapes'},
+  {id:39,cls:'Class 3', title:'Perimeter & Area',           topic:'Calculate perimeter and area'},
+  {id:40,cls:'Class 3', title:'Data Handling',              topic:'Tally, pictograph, bar chart'},
+];
+
+// Difficulty ranges: d=0 main(hardest), d=1 easier, d=2 easiest
+function numRange(d, ranges){ return ranges[d]||ranges[ranges.length-1]; }
+
+// ══════════════════════════════════════════════
+// QUESTION FACTORIES — each returns {key, html}
+// ══════════════════════════════════════════════
+
+// L1: Quantity Comparison
+function qL1(d){
+  const maxN=[10,7,4][d];
+  const types=d===2?[0,1]:d===1?[0,1,2]:[0,1,2,3];
+  const t=pick(types);
+  const icon1=pick(FRUITS), icon2=pick(ANIMALS);
+  const a=ri(1,maxN), b=ri(1,maxN);
+  if(t===0){
+    return {key:`L1-moreobject-${a}-${b}-${icon1}-${icon2}`,
+      html:`<div class="obj-row">${obox(icon1,a,true)}<span style="font-size:16px;font-weight:700;padding:0 6px;">VS</span>${obox(icon2,b,true)}</div>
+      Which group has <strong>MORE</strong>? Circle it.&nbsp; Answer: ${bl(70)}`};
+  } else if(t===1){
+    return {key:`L1-less-${a}-${b}-${icon1}-${icon2}`,
+      html:`<div class="obj-row">${obox(icon1,a,true)}<span style="font-size:16px;font-weight:700;padding:0 6px;">VS</span>${obox(icon2,b,true)}</div>
+      Which group has <strong>LESS</strong>? Circle it.&nbsp; Answer: ${bl(70)}`};
+  } else if(t===2){
+    const same=ri(1,maxN);
+    const icon=pick(FRUITS);
+    return {key:`L1-equal-${same}-${icon}`,
+      html:`<div class="obj-row">${obox(icon,same,true)}<span style="padding:0 6px;">and</span>${obox(icon,same,true)}</div>
+      Are both groups <strong>EQUAL</strong>? Circle: &nbsp;<strong>YES &nbsp;/&nbsp; NO</strong>`};
+  } else {
+    return {key:`L1-write-${a}-${b}`,
+      html:`Group A has <strong>${a}</strong> objects.&nbsp; Group B has <strong>${b}</strong> objects.<br>
+      Which is more? ${bl()} &nbsp;&nbsp; Which is less? ${bl()} &nbsp;&nbsp; Difference = ${bl()}`};
+  }
+}
+
+// L2: Odd One Out
+function qL2(d){
+  const sets=[
+    {g:['🍎','🍊','🍋','🚗'],odd:'🚗'},
+    {g:['🐄','🐔','🐟','✏️'],odd:'✏️'},
+    {g:['📚','✏️','🎒','🍎'],odd:'🍎'},
+    {g:['🌸','🌻','🌷','🚗'],odd:'🚗'},
+    {g:['🍌','🥭','🍇','🏠'],odd:'🏠'},
+    {g:['⭐','⭐','⭐','🌙'],odd:'🌙'},
+    {g:['🐘','🐕','🐈','📚'],odd:'📚'},
+    {g:['🔵','🔵','🔵','🔴'],odd:'🔴'},
+    {g:['🥕','🧅','🥦','🍎'],odd:'🍎'},
+    {g:['✏️','📏','🖊️','🍊'],odd:'🍊'},
+    {g:['🐄','🐔','🐟','🌸'],odd:'🌸'},
+    {g:['🔺','🔺','🔺','🔵'],odd:'🔵'},
+    {g:['🍋','🍋','🍋','🐕'],odd:'🐕'},
+    {g:['🎒','🎒','🎒','🥕'],odd:'🥕'},
+    {g:['🌙','🌙','⭐','🌙'],odd:'⭐'},
+  ];
+  const s=pick(sets);
+  const items=sh(s.g);
+  const hint=d===2?` (Hint: one does not belong with the others)`:'';
+  return {key:`L2-${s.g.join('')}`,
+    html:`<div class="obj-row">${items.map(e=>`<div class="obj-box big" style="font-size:26px;">${e}</div>`).join('')}</div>
+    Circle the <strong>ODD ONE OUT</strong>${hint}. Write it here: ${bl(50)}`};
+}
+
+// L3: Sorting
+function qL3(d){
+  const types=d===0?[0,1,2]:d===1?[0,1]:[0];
+  const t=pick(types);
+  const icon=pick(FRUITS);
+  if(t===0){
+    const big=ri(3,5), small=ri(1,2);
+    const items=[...Array(big).fill(`<span style="font-size:22px;">${icon}</span>`),...Array(small).fill(`<span style="font-size:13px;">${icon}</span>`)];
+    return {key:`L3-size-${big}-${small}-${icon}`,
+      html:`<div class="obj-row">${sh(items).join('&nbsp;')}</div>
+      Count: &nbsp; <strong>Big</strong> ${icon} = ${bl()} &nbsp;&nbsp; <strong>Small</strong> ${icon} = ${bl()}`};
+  } else if(t===1){
+    const r=ri(2,5),b=ri(2,5),g=ri(2,4);
+    return {key:`L3-colour-${r}-${b}-${g}`,
+      html:`<div class="obj-row">
+        ${Array(r).fill('<span style="font-size:20px;">🔴</span>').join('')}&nbsp;
+        ${Array(b).fill('<span style="font-size:20px;">🔵</span>').join('')}&nbsp;
+        ${Array(g).fill('<span style="font-size:20px;">🟢</span>').join('')}</div>
+      Count: &nbsp; 🔴 = ${bl()} &nbsp; 🔵 = ${bl()} &nbsp; 🟢 = ${bl()}`};
+  } else {
+    const n1=ri(2,4), n2=ri(2,4);
+    const i1=pick(['🔺','🔵','🟡','⬛']), i2=pick(['⭐','❤️','🔷','🌸']);
+    return {key:`L3-shape-${n1}-${n2}-${i1}-${i2}`,
+      html:`<div class="obj-row">${sh([...Array(n1).fill(i1),...Array(n2).fill(i2)]).map(x=>`<span style="font-size:20px;">${x}</span>`).join('&nbsp;')}</div>
+      Count: &nbsp; ${i1} = ${bl()} &nbsp;&nbsp; ${i2} = ${bl()} &nbsp;&nbsp; Total = ${bl()}`};
+  }
+}
+
+// L4: Numbers 1-10
+function qL4(d){
+  const maxN=[10,8,5][d];
+  const types=d===2?[0,1]:d===1?[0,1,2]:[0,1,2,3];
+  const t=pick(types);
+  const num=ri(1,maxN);
+  const icon=picon();
+  if(t===0){
+    return {key:`L4-count-${num}-${icon}`,
+      html:`<div class="obj-row"><div class="obj-box big">${em(icon,num)}</div></div>Count and write the number: ${bl(50)}`};
+  } else if(t===1){
+    const words=['','one','two','three','four','five','six','seven','eight','nine','ten'];
+    return {key:`L4-word-${num}`,
+      html:mcq(`The number <strong>${num}</strong> in words is:`,[words[num],...sh(['zero','eleven','twelve','fifteen']).slice(0,3)])};
+  } else if(t===2){
+    return {key:`L4-after-${num}`,
+      html:`Write the number that comes <strong>after</strong> <big><b>${num}</b></big> : ${bl(50)}`};
+  } else {
+    return {key:`L4-draw-${num}`,
+      html:`Draw <strong>${num}</strong> circles in the box: &nbsp;${drawbox('draw circles here')}`};
+  }
+}
+
+// L5: Finger Counting
+function qL5(d){
+  const maxN=[10,7,5][d];
+  const num=ri(1,maxN);
+  const icon=pick([...FRUITS,...OBJECTS]);
+  const t=pick([0,1,2]);
+  if(t===0){
+    return {key:`L5-count-${num}-${icon}`,
+      html:`<div class="obj-row"><div class="obj-box big">${em(icon,num)}</div></div>
+      How many ${icon}? Write: ${bl(40)} &nbsp;&nbsp; Show on fingers: ${drawbox('fingers')}`};
+  } else if(t===1){
+    return {key:`L5-show-${num}`,
+      html:`Show <strong>${num}</strong> on your fingers. ${drawbox('draw fingers')}&nbsp; Write the number: ${bl(40)}`};
+  } else {
+    return {key:`L5-finger-${num}`,
+      html:mcq(`How many fingers are held up? ✋✋`.slice(0, d===0?6:4), [num, num+1, num-1>0?num-1:num+2, num+2].map(String))};
+  }
+}
+
+// L6: Before After Between
+function qL6(d){
+  const maxN=[20,15,10][d];
+  const t=pick([0,1,2]);
+  const num=ri(2,maxN-1);
+  if(t===0){
+    return {key:`L6-after-${num}`,
+      html:`What comes <strong>AFTER</strong> <big><b>${num}</b></big>? &nbsp; ${num}, ${bl(45)}`};
+  } else if(t===1){
+    return {key:`L6-before-${num}`,
+      html:`What comes <strong>BEFORE</strong> <big><b>${num}</b></big>? &nbsp; ${bl(45)}, ${num}`};
+  } else {
+    return {key:`L6-between-${num}`,
+      html:`Write the number <strong>BETWEEN</strong>: &nbsp; ${num-1} , ${bl(45)} , ${num+1}`};
+  }
+}
+
+// L7: Addition objects 1-10
+function qL7(d){
+  const maxSum=[10,8,6][d];
+  const a=ri(1,maxSum-1), b=ri(1,maxSum-a);
+  const icon=pick(FRUITS);
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    return {key:`L7-picadd-${a}-${b}-${icon}`,
+      html:`<div class="obj-row">${obox(icon,a,true)}<span style="font-size:18px;padding:0 6px;font-weight:700;">+</span>${obox(icon,b,true)}<span style="font-size:18px;padding:0 6px;font-weight:700;">=</span>${obox('',0,true)}</div>
+      ${a} + ${b} = ${bl(45)}`};
+  } else if(t===1){
+    const n=pname(), item=pfood();
+    return {key:`L7-story-${n}-${a}-${b}-${item}`,
+      html:`${n} has <strong>${a}</strong> ${item}. She gets <strong>${b}</strong> more.<br>How many in all? &nbsp; ${a} + ${b} = ${bl(45)}`};
+  } else if(t===2){
+    return {key:`L7-missing-${a}-${b}`,
+      html:`${a} + ${bl(45)} = ${a+b} &nbsp;&nbsp;&nbsp; (Find the missing number)`};
+  } else {
+    return {key:`L7-nline-${a}-${b}`,
+      html:`Use the number line to add: &nbsp; ${a} + ${b} = ?<br>${nline([0,1,2,3,4,5,6,7,8,9,10].map(n=>n<=a+b?n:null))}<br>Answer: ${bl(45)}`};
+  }
+}
+
+// L8: Subtraction 1-10
+function qL8(d){
+  const maxN=[10,8,6][d];
+  const a=ri(2,maxN), b=ri(1,a-1);
+  const icon=pick(FRUITS);
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    return {key:`L8-picbox-${a}-${b}-${icon}`,
+      html:`<div class="obj-row"><div class="obj-box big">${em(icon,a)}</div></div>
+      Cross out <strong>${b}</strong>. How many left? &nbsp; ${a} − ${b} = ${bl(45)}`};
+  } else if(t===1){
+    const n=pname(), item=pfood();
+    return {key:`L8-story-${n}-${a}-${b}-${item}`,
+      html:`${n} had <strong>${a}</strong> ${item}. She gave away <strong>${b}</strong>.<br>How many are left? &nbsp; ${a} − ${b} = ${bl(45)}`};
+  } else if(t===2){
+    return {key:`L8-missing-${a}-${b}`,
+      html:`${a} − ${bl(45)} = ${a-b} &nbsp;&nbsp;&nbsp; (Find the missing number)`};
+  } else {
+    return {key:`L8-nline-${a}-${b}`,
+      html:`Use the number line: &nbsp; ${a} − ${b} = ?<br>${nline([0,1,2,3,4,5,6,7,8,9,10])}<br>Answer: ${bl(45)}`};
+  }
+}
+
+// L9: Patterns
+function qL9(d){
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    const icons=[pick(['🔴','🔵','🟡','⭐','🌸']),pick(['🟦','🔺','🌙','🌻'])];
+    const seq=[icons[0],icons[1],icons[0],icons[1],icons[0],null];
+    return {key:`L9-shape-${icons.join('')}`,
+      html:`Complete the pattern:<br><div class="obj-row">${seq.map((x,i)=>x?`<div class="obj-box" style="font-size:22px;">${x}</div>`:`<div class="obj-box" style="min-width:50px;">${bl(40)}</div>`).join('')}</div>`};
+  } else if(t===1){
+    const base=ri(1,d===0?15:10), step=ri(1,d===0?3:2);
+    const seq=[base,base+step,base+2*step,null,base+4*step];
+    return {key:`L9-numseq-${base}-${step}`,
+      html:`Fill the missing number:<br><div style="font-size:15px;margin:5px 0;">
+      &nbsp;${seq.map(x=>x!==null?`<strong>${x}</strong>`:bl(38)).join(' &nbsp;,&nbsp; ')}</div>`};
+  } else if(t===2){
+    const icons=[pick(['⬛','⬜','🔶']),pick(['⭕','🔸','❇️'])];
+    const seq=[icons[0],icons[0],icons[1],icons[0],icons[0],null];
+    return {key:`L9-aab-${icons.join('')}`,
+      html:`What comes next?<br><div class="obj-row">${seq.map((x,i)=>x?`<div class="obj-box" style="font-size:22px;">${x}</div>`:`<div class="obj-box" style="min-width:50px;">${bl(40)}</div>`).join('')}</div>`};
+  } else {
+    const start=ri(2,10)*2;
+    const seq=[start,null,start+4,start+6,null];
+    return {key:`L9-skip2-${start}`,
+      html:`Skip count by <strong>2</strong>: &nbsp; ${seq.map(x=>x!==null?`<strong>${x}</strong>`:bl(38)).join(' , ')}`};
+  }
+}
+
+// L10: Comparison numerals
+function qL10(d){
+  const maxN=[20,15,10][d];
+  const t=pick(d===0?[0,1,2]:d===1?[0,1]:[0]);
+  const a=ri(1,maxN), b=ri(1,maxN);
+  if(t===0){
+    return {key:`L10-compare-${a}-${b}`,
+      html:`<big><b>${a}</b></big> &nbsp; ${bl(28)} &nbsp; <big><b>${b}</b></big> &nbsp;&nbsp; (Fill in <strong>&lt; , &gt; or =</strong>)`};
+  } else if(t===1){
+    const nums=sh([a,b,ri(1,maxN)]);
+    return {key:`L10-biggest-${nums.join('-')}`,
+      html:`Circle the <strong>BIGGEST</strong> number: &nbsp; <big><b>${nums.join(' &nbsp;&nbsp;&nbsp; ')}</b></big>`};
+  } else {
+    const nums=sh([a,b,ri(1,maxN)]);
+    return {key:`L10-smallest-${nums.join('-')}`,
+      html:mcq(`Smallest number among <b>${nums.join(', ')}</b>?`, nums.map(String))};
+  }
+}
+
+// L11: Review 1-10 (mixed pool)
+function qL11(d){
+  const pool=[()=>qL4(d),()=>qL7(d),()=>qL8(d),()=>qL6(d),()=>qL10(d)];
+  return pick(pool)();
+}
+
+// L12: Tens and Ones
+function qL12(d){
+  const maxN=[30,25,19][d];
+  const num=ri(10,maxN);
+  const t=ri(1,d===0?10:20)%2;
+  if(t===0){
+    const tens=Math.floor(num/10), ones=num%10;
+    return {key:`L12-break-${num}`,
+      html:`<big><b>${num}</b></big> = ${bl(30)} tens and ${bl(30)} ones<br>
+      <div class="obj-row">${Array(tens).fill('<div class="obj-box" style="font-size:11px;min-width:36px;min-height:44px;">|||||||||| <br>(10)</div>').join('')}${ones>0?`<div class="obj-box" style="font-size:16px;min-width:36px;min-height:44px;">${em('|',ones)}</div>`:''}</div>`};
+  } else {
+    const tens=ri(1,d===0?3:2), ones=ri(0,9);
+    return {key:`L12-build-${tens}-${ones}`,
+      html:`<div class="obj-row">
+        ${Array(tens).fill('<div class="obj-box" style="font-size:11px;min-width:40px;min-height:44px;">10</div>').join('')}
+        ${ones>0?`<div class="obj-box" style="font-size:16px;min-width:40px;min-height:44px;">${em('●',ones)}</div>`:''}
+      </div>
+      ${tens} ten${tens>1?'s':''} and ${ones} one${ones!==1?'s':''} = ${bl(50)}`};
+  }
+}
+
+// L13: Numbers 11-30
+function qL13(d){
+  const maxN=[30,25,20][d];
+  const num=ri(11,maxN);
+  const icon=picon();
+  const t=pick([0,1,2]);
+  if(t===0){
+    return {key:`L13-count-${num}-${icon}`,
+      html:`Count the ${icon}s:<br><div class="emoji-grid">${em(icon,num)}</div>Write the number: ${bl(50)}`};
+  } else if(t===1){
+    return {key:`L13-write-${num}`,
+      html:`Write the number <big><b>${num}</b></big> in words: ${bl(110)}`};
+  } else {
+    return {key:`L13-series-${num}`,
+      html:`Fill in the blanks: &nbsp; ${num-1} , ${bl(40)} , ${num+1}`};
+  }
+}
+
+// L14: Count & Trace
+function qL14(d){
+  const maxN=[20,15,10][d];
+  const num=ri(1,maxN);
+  const icon=pick([...FRUITS,...ANIMALS]);
+  return {key:`L14-trace-${num}-${icon}`,
+    html:`Count: <span style="font-size:18px;">${em(icon,num)}</span><br>
+    How many? ${bl(40)} &nbsp;&nbsp; Trace the number: <span style="font-size:28px;color:#ccc;font-weight:900;border-bottom:2px dashed #aaa;padding:0 6px;">${num}</span>`};
+}
+
+// L15: Mixed 1-30
+function qL15(d){
+  const pool=[()=>qL6(d),()=>qL10(d),()=>qL12(d),()=>qL13(d)];
+  return pick(pool)();
+}
+
+// L16: Addition 1-30
+function qL16(d){
+  // d=0: up to 30 no carry; d=1: up to 20; d=2: up to 15 small numbers
+  const [maxA,maxB]=[[24,5],[14,5],[10,4]][d];
+  const a=ri(10,maxA), b=ri(1,maxB);
+  const t=pick(d===0?[0,1,2]:d===1?[0,1]:[0,1]);
+  if(t===0){
+    return {key:`L16-vert-${a}-${b}`,html:vs(a,b,'+')};
+  } else if(t===1){
+    const n=pname(), item=pitem();
+    return {key:`L16-story-${n}-${a}-${b}`,
+      html:`${n} has <strong>${a}</strong> ${item} and gets <strong>${b}</strong> more.<br>Total = ${a} + ${b} = ${bl(50)}`};
+  } else {
+    return {key:`L16-missing-${a}-${b}`,
+      html:`${a} + ${bl(40)} = ${a+b} &nbsp;&nbsp; (Find the missing number)`};
+  }
+}
+
+// L17: Subtraction 1-30
+function qL17(d){
+  const [maxA,minB]=[[30,5],[20,3],[15,2]][d];
+  const a=ri(11,maxA), b=ri(minB,a-1);
+  const t=pick(d===0?[0,1,2]:d===1?[0,1]:[0,1]);
+  if(t===0){
+    return {key:`L17-vert-${a}-${b}`,html:vs(a,b,'−')};
+  } else if(t===1){
+    const n=pname(), item=pfood();
+    return {key:`L17-story-${n}-${a}-${b}`,
+      html:`${n} had <strong>${a}</strong> ${item}. She gave away <strong>${b}</strong>.<br>How many left? &nbsp; ${a} − ${b} = ${bl(50)}`};
+  } else {
+    return {key:`L17-missing-${a}-${b}`,
+      html:`${a} − ${bl(40)} = ${a-b} &nbsp;&nbsp; (Find the missing number)`};
+  }
+}
+
+// L18: Ordering
+function qL18(d){
+  const maxN=[30,20,15][d];
+  const cnt=d===0?5:d===1?4:3;
+  const nums=Array.from({length:cnt},()=>ri(1,maxN));
+  const t=ri(0,1);
+  if(t===0){
+    return {key:`L18-asc-${nums.join('-')}`,
+      html:`Arrange in <strong>ASCENDING</strong> (smallest to biggest) order:<br>
+      <strong>${sh(nums).join(' , ')}</strong><br>
+      Answer: ${bl(180)}`};
+  } else {
+    return {key:`L18-desc-${nums.join('-')}`,
+      html:`Arrange in <strong>DESCENDING</strong> (biggest to smallest) order:<br>
+      <strong>${sh(nums).join(' , ')}</strong><br>
+      Answer: ${bl(180)}`};
+  }
+}
+
+// L19: Numbers 31-50
+function qL19(d){
+  const maxN=[50,46,42][d];
+  const num=ri(31,maxN);
+  const icon=picon();
+  const t=pick([0,1,2]);
+  if(t===0){
+    return {key:`L19-tens-${num}`,
+      html:`<b>${num}</b> = ${bl(30)} tens and ${bl(30)} ones`};
+  } else if(t===1){
+    return {key:`L19-before-after-${num}`,
+      html:`${bl(40)} , <big><b>${num}</b></big> , ${bl(40)} &nbsp; (Write before and after numbers)`};
+  } else {
+    return {key:`L19-count-${num}-${icon}`,
+      html:`Count: <div class="emoji-grid">${em(icon,num)}</div>Write the number: ${bl(50)}`};
+  }
+}
+
+// L20: Skip Counting
+function qL20(d){
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    const s=ri(2,d===0?20:14)*2;
+    return {key:`L20-by2-${s}`,
+      html:`Skip count by <strong>2</strong>: &nbsp; ${s} , ${s+2} , ${bl(35)} , ${s+6} , ${bl(35)}`};
+  } else if(t===1){
+    const s=ri(1,d===0?8:5)*3;
+    return {key:`L20-by3-${s}`,
+      html:`Skip count by <strong>3</strong>: &nbsp; ${s} , ${bl(35)} , ${s+6} , ${bl(35)} , ${s+12}`};
+  } else if(t===2){
+    const s=ri(1,5)*5;
+    return {key:`L20-by5-${s}`,
+      html:`Skip count by <strong>5</strong>: &nbsp; ${s} , ${s+5} , ${bl(35)} , ${s+15} , ${bl(35)}`};
+  } else {
+    const start=ri(2,10)*2, step=2;
+    const icon=pick(FRUITS);
+    return {key:`L20-pic-${start}-${icon}`,
+      html:`<div class="obj-row">${[start,start+2,start+4].map(n=>obox(icon,n<15?n:8,true)).join('<span style="font-size:14px;">, </span>')}</div>
+      Count each group and find the pattern. Next group has: ${bl(40)}`};
+  }
+}
+
+// L21: Comparison 1-50
+function qL21(d){
+  const maxN=[50,40,30][d];
+  const a=ri(1,maxN), b=ri(1,maxN);
+  const t=pick(d===0?[0,1,2]:d===1?[0,1]:[0]);
+  if(t===0){
+    return {key:`L21-sign-${a}-${b}`,
+      html:`<big><b>${a}</b></big> &nbsp; ${bl(28)} &nbsp; <big><b>${b}</b></big> &nbsp; (Fill &lt; , &gt; or =)`};
+  } else if(t===1){
+    const nums=sh([a,b,ri(1,maxN)]);
+    return {key:`L21-biggest-${nums.join('-')}`,
+      html:`Circle the <strong>LARGEST</strong>: &nbsp;<big><b>${nums.join(' &nbsp;&nbsp; ')}</b></big>`};
+  } else {
+    return {key:`L21-mcq-${a}-${b}`,
+      html:mcq(`Which is greater: <b>${a}</b> or <b>${b}</b>?`,[String(Math.max(a,b)),String(Math.min(a,b)),'Both equal','Cannot say'])};
+  }
+}
+
+// L22: Mixed Add/Sub to 50
+function qL22(d){
+  const maxN=[50,40,30][d];
+  const a=ri(d===0?20:10,maxN-5), b=ri(1,Math.min(15,a-1));
+  const t=pick([0,1]);
+  if(t===0){
+    const c=ri(1,maxN-a);
+    return {key:`L22-add-${a}-${c}`,html:vs(a,Math.min(c,maxN-a),'+')};
+  } else {
+    return {key:`L22-sub-${a}-${b}`,html:vs(a,b,'−')};
+  }
+}
+
+// L23: Review 1-50
+function qL23(d){
+  const pool=[()=>qL21(d),()=>qL22(d),()=>qL20(d),()=>qL19(d)];
+  return pick(pool)();
+}
+
+// L24: 2D Shapes
+function qL24(d){
+  const shapes={
+    circle:{sides:0,corners:0,emoji:'⭕'},
+    square:{sides:4,corners:4,emoji:'🟥'},
+    triangle:{sides:3,corners:3,emoji:'🔺'},
+    rectangle:{sides:4,corners:4,emoji:'▬'},
+    pentagon:{sides:5,corners:5,emoji:'⬠'},
+    hexagon:{sides:6,corners:6,emoji:'⬡'},
+  };
+  const pool=d===0?Object.keys(shapes):d===1?['circle','square','triangle','rectangle']:['circle','square','triangle'];
+  const name=pick(pool);
+  const s=shapes[name];
+  const t=pick(d===0?[0,1,2,3,4]:d===1?[0,1,2,3]:[0,1,2]);
+  if(t===0){
+    return {key:`L24-sides-${name}`,
+      html:`<span style="font-size:40px;">${s.emoji}</span> &nbsp; A <strong>${name}</strong> has ${bl(35)} sides.`};
+  } else if(t===1){
+    return {key:`L24-corners-${name}`,
+      html:`<span style="font-size:40px;">${s.emoji}</span> &nbsp; A <strong>${name}</strong> has ${bl(35)} corners.`};
+  } else if(t===2){
+    return {key:`L24-name-${s.sides}`,
+      html:mcq(`Which shape has <strong>${s.sides}</strong> sides?`, [name,...sh(pool.filter(x=>x!==name)).slice(0,3)])};
+  } else if(t===3){
+    return {key:`L24-draw-${name}`,
+      html:`Draw a <strong>${name}</strong> in the box: ${drawbox('draw '+name)}`};
+  } else {
+    const real={circle:'coin, sun, wheel',square:'tile, window',triangle:'slice of pizza, tent',rectangle:'door, book',hexagon:'honeycomb cell',pentagon:'home plate'}[name]||'objects around you';
+    return {key:`L24-reallife-${name}`,
+      html:`Name 2 real life objects that look like a <strong>${name}</strong>: ${bl(130)}`};
+  }
+}
+
+// L25: Measurement
+function qL25(d){
+  const pairs=[
+    ['elephant 🐘','feather 🪶','heavier','elephant'],
+    ['pencil ✏️','table 🪑','longer','table'],
+    ['cup 🥤','bucket 🪣','holds more','bucket'],
+    ['ant 🐜','dog 🐕','heavier','dog'],
+    ['ruler 📏','building 🏠','longer','building'],
+    ['mug','tank','holds more','tank'],
+  ];
+  const p=pick(pairs);
+  const t=pick(d===0?[0,1,2]:d===1?[0,1]:[0]);
+  if(t===0){
+    return {key:`L25-compare-${p[0]}`,
+      html:`Compare: &nbsp; <strong>${p[0]}</strong> &nbsp; and &nbsp; <strong>${p[1]}</strong><br>
+      Which is <strong>${p[2]}</strong>? ${bl(100)}`};
+  } else if(t===1){
+    return {key:`L25-unit-${ri(0,3)}`,
+      html:mcq('Which unit do we use to measure WEIGHT?',['kg (kilogram)','cm (centimetre)','litre','minute'])};
+  } else {
+    return {key:`L25-mcq2-${ri(0,4)}`,
+      html:mcq('Which unit do we use to measure LENGTH?',['cm or m','kg','litre','kg or g'])};
+  }
+}
+
+// L26: Numbers 51-100
+function qL26(d){
+  const maxN=[100,85,70][d];
+  const num=ri(51,maxN);
+  const t=pick([0,1,2]);
+  if(t===0){
+    return {key:`L26-tens-${num}`,
+      html:`<big><b>${num}</b></big> = ${bl(30)} tens and ${bl(30)} ones`};
+  } else if(t===1){
+    return {key:`L26-series-${num}`,
+      html:`${num-2} , ${num-1} , ${bl(40)} , ${num+1} &nbsp; (Fill missing number)`};
+  } else {
+    return {key:`L26-words-${num}`,
+      html:`Write <big><b>${num}</b></big> in words: ${bl(130)}`};
+  }
+}
+
+// L27: Add/Sub to 100
+function qL27(d){
+  const maxN=[99,80,65][d];
+  const a=ri(20,maxN-10), b=ri(5,Math.min(20,a-5));
+  const t=pick(d===0?[0,1,2]:d===1?[0,1]:[0,1]);
+  if(t===0){
+    const c=ri(5,Math.min(20,maxN-a));
+    return {key:`L27-add-${a}-${c}`,html:vs(a,c,'+')};
+  } else if(t===1){
+    return {key:`L27-sub-${a}-${b}`,html:vs(a,b,'−')};
+  } else {
+    const n=pname(), item=pitem();
+    const c=ri(5,Math.min(15,maxN-a));
+    return {key:`L27-story-${n}-${a}-${c}`,
+      html:`${n} has <strong>${a}</strong> ${item} and buys <strong>${c}</strong> more. Total = ${bl(50)}`};
+  }
+}
+
+// L28: Multiplication intro
+function qL28(d){
+  const maxG=[5,4,3][d], maxE=[6,5,4][d];
+  const grp=ri(2,maxG), each=ri(2,maxE);
+  const icon=pick(FRUITS);
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    return {key:`L28-groups-${grp}-${each}-${icon}`,
+      html:`<div class="obj-row">${Array(grp).fill(obox(icon,each,true)).join('<span style="font-size:16px;padding:0 4px;font-weight:700;">+</span>')}</div>
+      ${grp} groups of ${each} = <strong>${grp} × ${each}</strong> = ${bl(45)}`};
+  } else if(t===1){
+    return {key:`L28-mult-${grp}-${each}`,
+      html:`<big><b>${grp} × ${each}</b></big> = ${bl(50)} <br>(${grp} groups of ${each})`};
+  } else if(t===2){
+    const n=pname(), item=pfood();
+    return {key:`L28-story-${n}-${grp}-${each}`,
+      html:`${n} has <strong>${grp}</strong> bags. Each bag has <strong>${each}</strong> ${item}.<br>Total = ${grp} × ${each} = ${bl(45)}`};
+  } else {
+    return {key:`L28-missing-${grp}-${each}`,
+      html:`${grp} × ${bl(40)} = ${grp*each} &nbsp; (Find the missing number)`};
+  }
+}
+
+// L29: Division intro
+function qL29(d){
+  const maxD=[5,4,3][d], maxQ=[6,5,4][d];
+  const div=ri(2,maxD), q=ri(2,maxQ);
+  const total=div*q;
+  const icon=pick(FRUITS);
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    return {key:`L29-div-${total}-${div}`,
+      html:`<big><b>${total} ÷ ${div}</b></big> = ${bl(45)}`};
+  } else if(t===1){
+    const n=pname(), item=pfood();
+    return {key:`L29-story-${n}-${total}-${div}`,
+      html:`${n} has <strong>${total}</strong> ${item}. She shares equally among <strong>${div}</strong> friends.<br>Each friend gets: ${bl(45)}`};
+  } else if(t===2){
+    return {key:`L29-pic-${total}-${div}-${icon}`,
+      html:`<div class="obj-row"><div class="obj-box big">${em(icon,Math.min(total,15))}</div></div>
+      Share <strong>${total}</strong> ${icon} equally in <strong>${div}</strong> groups. Each group = ${bl(45)}`};
+  } else {
+    return {key:`L29-missing-${total}-${div}`,
+      html:`${total} ÷ ${bl(40)} = ${q} &nbsp; (Find the missing number)`};
+  }
+}
+
+// L30: Fractions
+function qL30(d){
+  const t=pick(d===0?[0,1,2,3,4]:d===1?[0,1,2,3]:[0,1,2]);
+  if(t===0){
+    return {key:`L30-mcq-half-${ri(0,5)}`,
+      html:mcq('Which fraction means HALF?',['1/2','1/4','2/4','1/3'])};
+  } else if(t===1){
+    const total=(ri(2,5))*2;
+    return {key:`L30-half-${total}`,
+      html:`There are <strong>${total}</strong> 🍎. Half of them = ${bl(40)}`};
+  } else if(t===2){
+    const total=(ri(2,4))*4;
+    return {key:`L30-quarter-${total}`,
+      html:`There are <strong>${total}</strong> 🍊. One quarter (1/4) = ${bl(40)}`};
+  } else if(t===3){
+    return {key:`L30-shade-${ri(0,4)}`,
+      html:`Shade <strong>half</strong> of the shape: <br>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        ${Array(4).fill('<div style="border:1.5px solid #000;width:36px;height:36px;"></div>').join('')}
+      </div>`};
+  } else {
+    return {key:`L30-compare-${ri(0,4)}`,
+      html:mcq('Which is bigger?',['1/2','1/4','Both same','Cannot tell'])};
+  }
+}
+
+// L31: Time
+function qL31(d){
+  const h=ri(1,12);
+  const days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const t=pick(d===0?[0,1,2,3,4]:d===1?[0,1,2,3]:[0,1,2]);
+  if(t===0){
+    return {key:`L31-oclock-${h}`,
+      html:`The clock shows <strong>${h}:00</strong>. Write the time in words: ${bl(120)}<br>
+      <div style="border:2px solid #000;border-radius:50%;width:60px;height:60px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;margin-top:4px;font-weight:700;">${h}:00</div>`};
+  } else if(t===1){
+    return {key:`L31-hours-${ri(0,3)}`,
+      html:mcq('How many hours are there in a day?',['24','12','48','7'])};
+  } else if(t===2){
+    return {key:`L31-days-${ri(0,3)}`,
+      html:mcq('How many days are in a week?',['7','5','6','8'])};
+  } else if(t===3){
+    const d2=pick(days);
+    const idx=days.indexOf(d2);
+    return {key:`L31-nextday-${d2}`,
+      html:`The day after <strong>${d2}</strong> is: ${bl(100)}`};
+  } else {
+    return {key:`L31-months-${ri(0,3)}`,
+      html:mcq('Which is the first month of the year?',['January','December','March','June'])};
+  }
+}
+
+// L32: Measurement standard
+function qL32(d){
+  const t=pick(d===0?[0,1,2,3,4]:d===1?[0,1,2,3]:[0,1,2]);
+  if(t===0){
+    return {key:`L32-1m-${ri(0,4)}`,html:`1 metre = ${bl(40)} centimetres`};
+  } else if(t===1){
+    return {key:`L32-1kg-${ri(0,4)}`,html:`1 kilogram = ${bl(40)} grams`};
+  } else if(t===2){
+    return {key:`L32-1l-${ri(0,4)}`,html:`1 litre = ${bl(40)} millilitres`};
+  } else if(t===3){
+    return {key:`L32-unit-wt`,html:mcq('Unit used to measure WEIGHT?',['kg','cm','litre','metre'])};
+  } else {
+    const len=ri(2,9)*10;
+    return {key:`L32-conv-${len}`,html:`${len} cm = ${bl(40)} m ${bl(40)} cm`};
+  }
+}
+
+// L33: Numbers to 1000
+function qL33(d){
+  const maxN=[999,750,500][d];
+  const num=ri(100,maxN);
+  const h=Math.floor(num/100), te=Math.floor((num%100)/10), o=num%10;
+  const t=pick([0,1,2,3]);
+  if(t===0){
+    return {key:`L33-hto-${num}`,
+      html:`<big><b>${num}</b></big> = ${bl(30)} hundreds + ${bl(30)} tens + ${bl(30)} ones`};
+  } else if(t===1){
+    return {key:`L33-build-${h}-${te}-${o}`,
+      html:`${h} hundreds + ${te} tens + ${o} ones = ${bl(55)}`};
+  } else if(t===2){
+    return {key:`L33-compare-${num}`,
+      html:`${num} ${bl(28)} ${num+ri(1,50)} &nbsp; (Fill &lt; , &gt; or =)`};
+  } else {
+    return {key:`L33-before-after-${num}`,
+      html:`${num-1} , ${bl(50)} , ${num+1} &nbsp; (Fill missing number)`};
+  }
+}
+
+// L34: 3-digit add/sub
+function qL34(d){
+  const maxN=[999,800,650][d];
+  const a=ri(100,maxN-100);
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    const b=ri(10,Math.min(200,maxN-a));
+    return {key:`L34-add-${a}-${b}`,html:vs(a,b,'+')};
+  } else if(t===1){
+    const b=ri(50,a-50>50?a-50:a-10);
+    return {key:`L34-sub-${a}-${b}`,html:vs(a,b,'−')};
+  } else if(t===2){
+    const b=ri(10,Math.min(100,maxN-a));
+    const n=pname(), item=pitem();
+    return {key:`L34-story-add-${n}-${a}-${b}`,
+      html:`${n} has <strong>${a}</strong> ${item}. She gets <strong>${b}</strong> more. Total = ${bl(55)}`};
+  } else {
+    const b=ri(50,a-30);
+    const n=pname(), item=pfood();
+    return {key:`L34-story-sub-${n}-${a}-${b}`,
+      html:`${n} had <strong>${a}</strong> ${item}. She ate <strong>${b}</strong>. Left = ${bl(55)}`};
+  }
+}
+
+// L35: Multiplication Tables
+function qL35(d){
+  const maxT=[10,8,5][d];
+  const tbl=ri(2,maxT), mult=ri(1,12);
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    return {key:`L35-basic-${tbl}-${mult}`,
+      html:`<big><b>${tbl} × ${mult}</b></big> = ${bl(50)}`};
+  } else if(t===1){
+    const n=pname(), item=pfood();
+    const grp=ri(2,d===0?8:5);
+    return {key:`L35-story-${n}-${tbl}-${grp}`,
+      html:`${n} bought <strong>${tbl}</strong> packets. Each has <strong>${grp}</strong> ${item}.<br>Total = ${tbl} × ${grp} = ${bl(50)}`};
+  } else if(t===2){
+    return {key:`L35-missing-${tbl}-${mult}`,
+      html:`${tbl} × ${bl(40)} = ${tbl*mult} &nbsp; (Find the missing number)`};
+  } else {
+    return {key:`L35-table-${tbl}`,
+      html:`Complete the table of <strong>${tbl}</strong>:<br>
+      ${[1,2,3,4,5].map(i=>`${tbl} × ${i} = ${bl(40)}`).join(' &nbsp;&nbsp; ')}`};
+  }
+}
+
+// L36: Division
+function qL36(d){
+  const maxT=[10,8,5][d];
+  const div=ri(2,maxT), q=ri(2,10);
+  const total=div*q;
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    return {key:`L36-div-${total}-${div}`,
+      html:`<big><b>${total} ÷ ${div}</b></big> = ${bl(50)}`};
+  } else if(t===1){
+    return {key:`L36-missing-${total}-${q}`,
+      html:`${total} ÷ ${bl(40)} = ${q} &nbsp; (Find the missing number)`};
+  } else if(t===2){
+    return {key:`L36-link-${div}-${q}`,
+      html:`If ${div} × ${q} = ${total}, then ${total} ÷ ${div} = ${bl(50)}`};
+  } else {
+    const n=pname(), item=pfood();
+    return {key:`L36-story-${n}-${total}-${div}`,
+      html:`${n} has <strong>${total}</strong> ${item}. She divides equally among <strong>${div}</strong> friends.<br>Each gets = ${bl(50)}`};
+  }
+}
+
+// L37: Fractions Class 3
+function qL37(d){
+  const denoms=d===0?[2,3,4,5,6,8]:d===1?[2,3,4,6]:[2,3,4];
+  const den=pick(denoms), num=ri(1,den-1);
+  const t=pick(d===0?[0,1,2,3,4]:d===1?[0,1,2,3]:[0,1,2]);
+  if(t===0){
+    return {key:`L37-shade-${num}-${den}`,
+      html:`Shade <strong>${num}/${den}</strong> of the shape:<br>
+      <div style="display:flex;gap:4px;margin-top:4px;">${Array(den).fill('<div style="border:1.5px solid #000;width:'+(Math.floor(180/den))+'px;height:40px;"></div>').join('')}</div>`};
+  } else if(t===1){
+    const n2=ri(1,den-num);
+    return {key:`L37-add-${num}-${n2}-${den}`,
+      html:`<big><b>${num}/${den} + ${n2}/${den}</b></big> = ${bl(50)}`};
+  } else if(t===2){
+    return {key:`L37-compare-${den}`,
+      html:mcq(`Which is bigger: <b>1/${den}</b> or <b>1/${den+1}</b>?`,[`1/${den}`,`1/${den+1}`,'Both equal','Cannot say'])};
+  } else if(t===3){
+    return {key:`L37-equiv-${num}-${den}`,
+      html:mcq(`${num}/${den} = ?/${den*2}?`, [`${num*2}`,`${num}`,`${num+1}`,`${den}`])};
+  } else {
+    const n2=ri(1,num);
+    return {key:`L37-sub-${num}-${n2}-${den}`,
+      html:`<big><b>${num}/${den} − ${n2}/${den}</b></big> = ${bl(50)}`};
+  }
+}
+
+// L38: Geometry
+function qL38(d){
+  const shapes3d={cube:{faces:6,edges:12,vertices:8},cuboid:{faces:6,edges:12,vertices:8},cylinder:{faces:3,edges:2,vertices:0},cone:{faces:2,edges:1,vertices:1},sphere:{faces:1,edges:0,vertices:0}};
+  const sname=pick(Object.keys(shapes3d));
+  const s=shapes3d[sname];
+  const t=pick(d===0?[0,1,2,3,4]:d===1?[0,1,2,3]:[0,1,2]);
+  if(t===0){
+    return {key:`L38-faces-${sname}`,html:mcq(`How many faces does a <b>${sname}</b> have?`, [String(s.faces),String(s.faces+1),String(s.faces-1),String(s.faces+2)])};
+  } else if(t===1){
+    return {key:`L38-edges-${sname}`,html:mcq(`How many edges does a <b>${sname}</b> have?`, [String(s.edges),String(s.edges+2),String(s.edges-1),String(s.edges+4)])};
+  } else if(t===2){
+    return {key:`L38-rightangle-${ri(0,5)}`,html:`A right angle measures ${bl(40)} degrees.`};
+  } else if(t===3){
+    return {key:`L38-reallife-${sname}`,html:`Name 2 objects shaped like a <strong>${sname}</strong>: ${bl(140)}`};
+  } else {
+    return {key:`L38-draw-${ri(0,4)}`,html:`Draw a <strong>straight line</strong> and a <strong>curved line</strong> below:<br>${drawbox('straight line')} &nbsp; ${drawbox('curved line')}`};
+  }
+}
+
+// L39: Perimeter & Area
+function qL39(d){
+  const maxS=[20,15,10][d];
+  const l=ri(3,maxS), w=ri(2,maxS-1);
+  const s=ri(2,maxS);
+  const t=pick(d===0?[0,1,2,3]:d===1?[0,1,2]:[0,1]);
+  if(t===0){
+    return {key:`L39-peri-rect-${l}-${w}`,
+      html:`Rectangle: length = <strong>${l} cm</strong>, width = <strong>${w} cm</strong><br>
+      Perimeter = 2 × (l + w) = 2 × (${l} + ${w}) = ${bl(55)} cm`};
+  } else if(t===1){
+    return {key:`L39-area-rect-${l}-${w}`,
+      html:`Rectangle: length = <strong>${l} cm</strong>, width = <strong>${w} cm</strong><br>
+      Area = l × w = ${l} × ${w} = ${bl(55)} cm²`};
+  } else if(t===2){
+    return {key:`L39-peri-sq-${s}`,
+      html:`Square: side = <strong>${s} cm</strong><br>
+      Perimeter = 4 × side = 4 × ${s} = ${bl(55)} cm`};
+  } else {
+    return {key:`L39-area-sq-${s}`,
+      html:`Square: side = <strong>${s} cm</strong><br>
+      Area = side × side = ${s} × ${s} = ${bl(55)} cm²`};
+  }
+}
+
+// L40: Data Handling
+function qL40(d){
+  const FRUIT_NAMES=['Mango','Apple','Banana','Guava','Orange'];
+  const fnames=sh(FRUIT_NAMES).slice(0,d===0?5:d===1?4:3);
+  const counts=fnames.map(()=>ri(2,10));
+  const max=Math.max(...counts);
+  const maxName=fnames[counts.indexOf(max)];
+  const min=Math.min(...counts);
+  const minName=fnames[counts.indexOf(min)];
+  const total=counts.reduce((a,b)=>a+b,0);
+  const tableHtml=`<table class="dtable"><tr><th>Fruit</th>${fnames.map(f=>`<th>${f}</th>`).join('')}</tr>
+  <tr><td><b>Count</b></td>${counts.map(c=>`<td>${c}</td>`).join('')}</tr></table>`;
+  const pictHtml=`<div style="margin:5px 0;">${fnames.map((f,i)=>`<div class="prow"><span class="pname">${f}</span>${Array(counts[i]).fill('⭐').join('')}</div>`).join('')}<div style="font-size:10px;margin-top:3px;color:#555;">⭐ = 1 ${fnames[0]}</div></div>`;
+  const t=pick(d===0?[0,1,2,3,4]:d===1?[0,1,2,3]:[0,1,2]);
+  if(t===0){return {key:`L40-most-${fnames.join('-')}-${counts.join('-')}`,html:tableHtml+`Which fruit is most popular? ${bl(100)}`};}
+  else if(t===1){return {key:`L40-total-${counts.join('-')}`,html:tableHtml+`Total fruits counted = ${bl(55)}`};}
+  else if(t===2){return {key:`L40-least-${fnames.join('-')}-${counts.join('-')}`,html:tableHtml+`Which fruit is least popular? ${bl(100)}`};}
+  else if(t===3){return {key:`L40-pict-${fnames[0]}-${counts[0]}`,html:pictHtml+`How many ${fnames[0]} were counted? ${bl(55)}`};}
+  else {return {key:`L40-tally-${ri(0,9)}`,html:mcq('Tally mark for 5 looks like:',['Four lines with one crossed (||||̶)','Five dots','IIIII','Five circles'])};}
+}
+
+// ══════════════════════════════════════════════
+// MASTER DISPATCHER
+// ══════════════════════════════════════════════
+const GEN_MAP={
+  1:qL1,2:qL2,3:qL3,4:qL4,5:qL5,6:qL6,7:qL7,8:qL8,9:qL9,10:qL10,
+  11:qL11,12:qL12,13:qL13,14:qL14,15:qL15,16:qL16,17:qL17,18:qL18,
+  19:qL19,20:qL20,21:qL21,22:qL22,23:qL23,24:qL24,25:qL25,26:qL26,
+  27:qL27,28:qL28,29:qL29,30:qL30,31:qL31,32:qL32,33:qL33,34:qL34,
+  35:qL35,36:qL36,37:qL37,38:qL38,39:qL39,40:qL40
+};
+
+function genQuestions(levelId, diff, count){
+  const fn=GEN_MAP[levelId];
+  if(!fn) return [{key:'err',html:'Level coming soon.'}];
+  return makeUnique(()=>fn(diff), count, count*50);
+}
+
+// ══════════════════════════════════════════════
+// STATE & UI
+// ══════════════════════════════════════════════
+let SEL={level:null, diff:0};
+
+function buildSidebar(){
+  const el=document.getElementById('lvl-list');
+  ['Class 1','Class 2','Class 3'].forEach(cls=>{
+    const g=document.createElement('div');
+    g.innerHTML=`<div class="cls-label">📚 ${cls}</div>`;
+    LEVELS.filter(l=>l.cls===cls).forEach(l=>{
+      const b=document.createElement('button');
+      b.className='lvl-btn'; b.id=`lb${l.id}`;
+      b.innerHTML=`<span class="lvl-num">L${l.id}</span>${l.title}`;
+      b.onclick=()=>selectLevel(l.id);
+      g.appendChild(b);
+    });
+    el.appendChild(g);
+  });
+}
+
+function selectLevel(id){
+  SEL.level=id; SEL.diff=0;
+  document.querySelectorAll('.lvl-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById(`lb${id}`).classList.add('active');
+  const lv=LEVELS.find(l=>l.id===id);
+  document.getElementById('ttitle').textContent=`Level ${id}: ${lv.title}`;
+  const tabs=document.getElementById('sl-tabs');
+  const labels=[['🔴 Main Level','Harder'],['🟡 Easier','Medium'],['🟢 Easiest','Simplest']];
+  tabs.innerHTML='';
+  labels.forEach(([lbl,sub],i)=>{
+    const t=document.createElement('button');
+    t.className='sl-tab'+(i===0?' active':'');
+    t.innerHTML=lbl;
+    t.title=sub;
+    t.onclick=()=>{SEL.diff=i;document.querySelectorAll('.sl-tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');};
+    tabs.appendChild(t);
+  });
+  document.getElementById('infobar').innerHTML=`<span class="ipill">Class: <b>${lv.cls}</b></span><span class="ipill">Topic: <b>${lv.topic}</b></span><span class="ipill">Sub-levels: <b>3 difficulties</b></span>`;
+  ['gbtn','pbtn','dfbtn'].forEach(id2=>document.getElementById(id2).disabled=false);
+}
+
+function generatePaper(){
+  if(!SEL.level) return;
+  const lv=LEVELS.find(l=>l.id===SEL.level);
+  const count=Math.max(5,Math.min(40,parseInt(document.getElementById('qcount').value)||10));
+  document.getElementById('spin').classList.add('show');
+  document.getElementById('smsg').textContent='Building your question paper…';
+  setTimeout(()=>{
+    const qs=genQuestions(SEL.level, SEL.diff, count);
+    renderPaper(lv, qs, count);
+    document.getElementById('spin').classList.remove('show');
+  },200);
+}
+
+function renderPaper(lv, qs, count){
+  document.getElementById('empty').style.display='none';
+  document.getElementById('pw').style.display='block';
+  const diffNames=['Main Level (Hardest)','Sub-Level (Easier)','Sub-Level (Easiest)'];
+  const totalMarks=count*2;
+  let html=`<div class="ph">
+    <div class="ph-school">Foundation Learning (FLN) – Mathematics</div>
+    <div class="ph-title">Question Paper</div>
+    <div class="ph-sub">Level ${lv.id}: ${lv.title} &nbsp;|&nbsp; ${lv.cls} &nbsp;|&nbsp; ${diffNames[SEL.diff]}</div>
+    <div class="ph-meta">
+      <span class="mf"><strong>Name:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+      <span class="mf"><strong>Date:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+      <span class="mf"><strong>Marks:&nbsp;${totalMarks}</strong></span>
+      <span class="mf"><strong>Time: 45 min</strong></span>
+    </div>
+  </div>`;
+  html+=`<div class="sec-hdr">QUESTIONS — Answer all questions &nbsp;(${count} questions × 2 marks each = ${totalMarks} marks)</div>`;
+  html+=`<div class="q-instr">Write your answer in the space provided. Use pencil.</div>`;
+  qs.forEach((q,i)=>{
+    html+=`<div class="qrow"><span class="qn">${i+1}.</span><span class="qb">${q.html}</span></div>`;
+  });
+  html+=`<div class="pf">Topic: ${lv.topic} &nbsp;|&nbsp; Level ${lv.id} &nbsp;|&nbsp; ${diffNames[SEL.diff]} &nbsp;|&nbsp; All the best! 🌟</div>`;
+  document.getElementById('paper').innerHTML=html;
+}
+
+async function exportPDF(){
+  const paper=document.getElementById('paper');
+  if(!paper.innerHTML.trim()){alert('Generate a paper first!');return;}
+  document.getElementById('spin').classList.add('show');
+  document.getElementById('smsg').textContent='Creating PDF…';
+  try{
+    const canvas=await html2canvas(paper,{scale:2,useCORS:true,backgroundColor:'#ffffff'});
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+    const imgData=canvas.toDataURL('image/jpeg',0.95);
+    const pdfW=pdf.internal.pageSize.getWidth();
+    const pdfH=(canvas.height*pdfW)/canvas.width;
+    const pageH=pdf.internal.pageSize.getHeight();
+    let pos=0, left=pdfH;
+    pdf.addImage(imgData,'JPEG',0,0,pdfW,pdfH);
+    left-=pageH;
+    while(left>0){pos=left-pdfH;pdf.addPage();pdf.addImage(imgData,'JPEG',0,pos,pdfW,pdfH);left-=pageH;}
+    const lv=LEVELS.find(l=>l.id===SEL.level);
+    pdf.save(`FLN_L${SEL.level}_${lv.title.replace(/[^a-z0-9]/gi,'_')}_${['Main','Easier','Easiest'][SEL.diff]}.pdf`);
+  }catch(e){alert('PDF failed, use Print instead.');}
+  document.getElementById('spin').classList.remove('show');
+}
+
+buildSidebar();
+</script>
+</body>
+</html>
