@@ -8,3 +8,6 @@ coverage/
 !.env.example
 archive
 output
+# Local-only Windows dev scripts (paths are machine-specific)
+run-dev.bat
+run-*.bat

@@ -133,7 +133,9 @@ export function getInitialSeedData(): MockDatabaseSchema {
     { id: 'c17', schoolId: 'gps-knp-012', className: 'Class 2', section: 'A', teacherId: 'u6_knp' },
     { id: 'c18', schoolId: 'gps-pb-ldh2-013', className: 'Class 2', section: 'A', teacherId: 'u6_ldh2' },
     { id: 'c19', schoolId: 'gps-hr-amb2-014', className: 'Class 3', section: 'A', teacherId: 'u6_amb2' },
-    { id: 'c20', schoolId: 'gps-mt-001', className: 'Class 4', section: 'A', teacherId: 'u6' }
+    { id: 'c20', schoolId: 'gps-mt-001', className: 'Class 4', section: 'A', teacherId: 'u6' },
+    { id: 'c21', schoolId: 'gps-vl-002', className: 'Class 3', section: 'B', teacherId: '' },
+    { id: 'c22', schoolId: 'gps-mt-001', className: 'Class 4', section: 'B', teacherId: 'u6' }
   ];
 
   const students: Student[] = [

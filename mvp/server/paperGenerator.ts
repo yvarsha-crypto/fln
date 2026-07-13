@@ -137,7 +137,7 @@ export async function generateLevelWorksheet({
   try {
     const page = await browser.newPage();
     const htmlPath = path.join(process.cwd(), "public", "worksheets", "levels_main.html");
-    await page.goto(`file://${htmlPath}`, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.goto(`file://${htmlPath}`, { waitUntil: 'load', timeout: 30000 });
 
     const data = await page.evaluate(({ levelId, subIdx }) => {
       // @ts-ignore
@@ -230,7 +230,7 @@ body{font-family:'Segoe UI',Arial,sans-serif;margin:0;background:#fff;color:var(
       </div>
     </body></html>`;
 
-    await printPage.setContent(wrappedHtml, { waitUntil: 'networkidle0', timeout: 15000 });
+    await printPage.setContent(wrappedHtml, { waitUntil: 'load', timeout: 15000 });
     await printPage.setViewport({ width: 794, height: 1123 });
 
     const pdfBuffer = await printPage.pdf({

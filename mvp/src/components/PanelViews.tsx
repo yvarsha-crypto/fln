@@ -10,16 +10,6 @@ interface PanelViewsProps {
   token: string;
 }
 
-const STUDENTS_MOCK: Student[] = [
-  { id: 's1', name: 'Amanpreet Singh', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 12, currentSubLevel: 0, targetLevel: 13, aadharMasked: 'XXXX-XXXX-1234', levelHistory: [{ level: 12, subLevel: 0, date: '2026-03-15', reason: 'Diagnostic' }], streak: 3 },
-  { id: 's2', name: 'Jasmine Kaur', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 8, currentSubLevel: 1, targetLevel: 12, aadharMasked: 'XXXX-XXXX-5678', levelHistory: [{ level: 8, subLevel: 1, date: '2026-02-20', reason: 'Mid-year' }], streak: 1 },
-  { id: 's3', name: 'Rohit Kumar', age: 9, classGroup: 'Class 3', section: 'A', schoolId: 'gps-mt-001', currentLevel: 36, currentSubLevel: 0, targetLevel: 37, aadharMasked: 'XXXX-XXXX-9012', levelHistory: [{ level: 36, date: '2026-01-10', reason: 'Baseline' }], streak: 5 },
-  { id: 's4', name: 'Priya Sharma', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 10, currentSubLevel: 2, targetLevel: 14, aadharMasked: 'XXXX-XXXX-3456', levelHistory: [], streak: 0 },
-  { id: 's5', name: 'Arjun Verma', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 6, currentSubLevel: 0, targetLevel: 11, aadharMasked: 'XXXX-XXXX-7890', levelHistory: [{ level: 6, date: '2026-04-01', reason: 'Diagnostic' }], streak: 2 },
-  { id: 's6', name: 'Neha Gupta', age: 8, classGroup: 'Class 3', section: 'A', schoolId: 'gps-mt-001', currentLevel: 38, currentSubLevel: 1, targetLevel: 40, aadharMasked: 'XXXX-XXXX-2345', levelHistory: [{ level: 38, date: '2026-03-01', reason: 'Mid-year' }], streak: 4 },
-  { id: 's7', name: 'Simran Kaur', age: 6, classGroup: 'Class 1', section: 'A', schoolId: 'gps-mt-001', currentLevel: 4, currentSubLevel: 0, targetLevel: 8, aadharMasked: 'XXXX-XXXX-6789', levelHistory: [], streak: 0 },
-];
-
 const REPORTS_MOCK: EvaluationReport[] = [
   { id: 'r1', studentId: 's1', worksheetId: 'ws1', score: 8, totalQuestions: 10, conceptMastery: { 'Number Sense': 'Strong', 'Addition': 'Satisfactory', 'Subtraction': 'Needs Practice' }, narrative: 'Shows good number sense but needs practice with borrowing in subtraction.', recommendedLevel: 12, timestamp: '2026-03-15T10:00:00Z' },
   { id: 'r2', studentId: 's2', worksheetId: 'ws2', score: 5, totalQuestions: 10, conceptMastery: { 'Number Sense': 'Satisfactory', 'Shapes': 'Needs Practice', 'Patterns': 'Needs Practice' }, narrative: 'Struggling with pattern recognition. Recommend additional tracing and matching exercises.', recommendedLevel: 8, recommendedSubLevel: 1, timestamp: '2026-02-20T11:30:00Z' },
@@ -172,7 +162,7 @@ function PageHeader({ title, desc, icon }: { title: string; desc: string; icon?:
   );
 }
 
-function EmptyStudents() {
+function EmptyStudents({ students }: { students: Student[] }) {
   const cols: Column<Student>[] = [
     { header: 'ID', accessor: 'id', className: 'font-mono text-xs text-slate-400' },
     { header: 'Name', accessor: 'name', sortKey: 'name', className: 'font-semibold text-slate-800' },
@@ -180,7 +170,7 @@ function EmptyStudents() {
     { header: 'Level', accessor: (s) => `L${s.currentLevel}.${s.currentSubLevel ?? 0}`, className: 'font-mono' },
     { header: 'Streak', accessor: (s) => `${s.streak} 🔥`, className: '' },
   ];
-  return <Table data={STUDENTS_MOCK} columns={cols} searchPlaceholder="Search students..." searchKey="name" />;
+  return <Table data={students} columns={cols} searchPlaceholder="Search students..." searchKey="name" />;
 }
 
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
@@ -188,6 +178,36 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [stateFilter, setStateFilter] = useState('all');
   const [distFilter, setDistFilter] = useState('all');
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+
+  // Lifted from conditional panels so hook order stays stable across renders.
+  const [profileSel, setProfileSel] = useState('');
+  const [profileTab, setProfileTab] = useState<'overview' | 'academic' | 'personal' | 'activity'>('overview');
+  const [profileSearch, setProfileSearch] = useState('');
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [activityFilter, setActivityFilter] = useState<'all' | 'assessment' | 'level_change'>('all');
+  const [expandedDistRpt, setExpandedDistRpt] = useState<string | null>(null);
+  const [expandedDist, setExpandedDist] = useState<string | null>(null);
+
+  // Students fetched live from MongoDB via /api/students (bypasses mock interceptor)
+  const [students, setStudents] = useState<Student[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/students', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) setStudents(data);
+        }
+      } catch (err) {
+        console.error('[PanelViews] failed to fetch students:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
 
   const filteredSchools = SCHOOLS_MOCK.filter(s => {
     if (stateFilter !== 'all' && s.stateCode !== stateFilter) return false;
@@ -332,22 +352,17 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
         <PageHeader title="Student Roster" desc="Complete list of registered students across your classes" icon={<Users className="h-5 w-5" />} />
-        <EmptyStudents />
+        <EmptyStudents students={students} />
       </div>
     );
   }
 
   if (panel === 'student_profile') {
-    const [sel, setSel] = useState(STUDENTS_MOCK[0].id);
-    const [profileTab, setProfileTab] = useState<'overview' | 'academic' | 'personal' | 'activity'>('overview');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [showDropdown, setShowDropdown] = useState(false);
-    const [activityFilter, setActivityFilter] = useState<'all' | 'assessment' | 'level_change'>('all');
-    const s = STUDENTS_MOCK.find(x => x.id === sel) || STUDENTS_MOCK[0];
+    const s = students.find(x => x.id === profileSel) || students[0];
 
-    const filteredStudents = STUDENTS_MOCK.filter(x =>
-      x.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      x.id.toLowerCase().includes(searchQuery.toLowerCase())
+    const filteredStudents = students.filter(x =>
+      x.name.toLowerCase().includes(profileSearch.toLowerCase()) ||
+      x.id.toLowerCase().includes(profileSearch.toLowerCase())
     );
 
     const EXTENDED_PROFILES: Record<string, any> = {
@@ -365,7 +380,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     const studentSchool = SCHOOLS_MOCK.find(sch => sch.id === s.schoolId);
     const att = ATTENDANCE_MOCK.find(a => a.student === s.name);
     const daysSinceEnroll = Math.floor((Date.now() - new Date(profile.enrollmentDate || s.id).getTime()) / 86400000);
-    const classStudents = STUDENTS_MOCK.filter(st => st.classGroup === s.classGroup);
+    const classStudents = students.filter(st => st.classGroup === s.classGroup);
     const classAvg = Math.round(classStudents.reduce((a, st) => a + st.currentLevel, 0) / Math.max(1, classStudents.length));
     const avgScore = reports.length > 0 ? Math.round(reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / reports.length) : 0;
     const allSkills = new Map<string, { mastery: string; date: string }[]>();
@@ -404,26 +419,26 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
             </div>
             {/* Searchable student selector */}
             <div className="relative shrink-0">
-              <button onClick={() => setShowDropdown(!showDropdown)} className="flex items-center gap-2 text-sm border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50 min-w-[180px] text-left">
+              <button onClick={() => setProfileDropdownOpen(!profileDropdownOpen)} className="flex items-center gap-2 text-sm border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50 min-w-[180px] text-left">
                 <Search className="w-3.5 h-3.5 text-slate-400" />
                 <span className="flex-1 truncate">{s.name}</span>
-                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${profileDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
-              {showDropdown && (
+              {profileDropdownOpen && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
+                  <div className="fixed inset-0 z-10" onClick={() => setProfileDropdownOpen(false)} />
                   <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
                     <div className="p-2 border-b border-slate-100">
-                      <input autoFocus value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search students..." className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-indigo-400" />
+                      <input autoFocus value={profileSearch} onChange={e => setProfileSearch(e.target.value)} placeholder="Search students..." className="w-full text-sm border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-indigo-400" />
                     </div>
                     <div className="max-h-56 overflow-y-auto">
                       {filteredStudents.length === 0 ? (
                         <p className="text-xs text-slate-400 text-center py-4">No students found</p>
                       ) : filteredStudents.map(x => {
-                        const isSelected = x.id === sel;
+                        const isSelected = x.id === profileSel;
                         const xAtt = ATTENDANCE_MOCK.find(a => a.student === x.name);
                         return (
-                          <button key={x.id} onClick={() => { setSel(x.id); setProfileTab('overview'); setShowDropdown(false); setSearchQuery(''); }}
+                          <button key={x.id} onClick={() => { setProfileSel(x.id); setProfileTab('overview'); setProfileDropdownOpen(false); setProfileSearch(''); }}
                             className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50 transition-colors ${isSelected ? 'bg-indigo-50' : ''}`}>
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{x.name.charAt(0)}</div>
                             <div className="flex-1 min-w-0">
@@ -847,8 +862,8 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   if (panel === 'diagnostic_test') {
-    const pending = STUDENTS_MOCK.filter(s => s.levelHistory.length === 0);
-    const completed = STUDENTS_MOCK.filter(s => s.levelHistory.length > 0);
+    const pending = students.filter(s => s.levelHistory.length === 0);
+    const completed = students.filter(s => s.levelHistory.length > 0);
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
@@ -933,14 +948,14 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'performance') {
     const isTeacher = currentUser.role === UserRole.TEACHER || currentUser.role === UserRole.VOLUNTEER;
-    const topStudents = [...STUDENTS_MOCK].sort((a, b) => b.currentLevel - a.currentLevel).slice(0, 5);
+    const topStudents = [...students].sort((a, b) => b.currentLevel - a.currentLevel).slice(0, 5);
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <MetricCard title="Total Students" value={STUDENTS_MOCK.length} subtext="Active roster" icon={Users} />
-          <MetricCard title="Avg Level" value={`L${Math.round(STUDENTS_MOCK.reduce((a, s) => a + s.currentLevel, 0) / STUDENTS_MOCK.length)}`} subtext="Class average" icon={BarChart3} />
-          <MetricCard title="Certified" value={`${STUDENTS_MOCK.filter(s => s.currentLevel >= 5).length}`} subtext="Level 5+ achieved" icon={Award} />
-          <MetricCard title="Pending Diagnostic" value={STUDENTS_MOCK.filter(s => s.levelHistory.length === 0).length} subtext="Need placement" icon={ShieldAlert} />
+          <MetricCard title="Total Students" value={students.length} subtext="Active roster" icon={Users} />
+          <MetricCard title="Avg Level" value={students.length > 0 ? `L${Math.round(students.reduce((a, s) => a + s.currentLevel, 0) / students.length)}` : '—'} subtext="Class average" icon={BarChart3} />
+          <MetricCard title="Certified" value={`${students.filter(s => s.currentLevel >= 5).length}`} subtext="Level 5+ achieved" icon={Award} />
+          <MetricCard title="Pending Diagnostic" value={students.filter(s => s.levelHistory.length === 0).length} subtext="Need placement" icon={ShieldAlert} />
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
           <PageHeader title={isTeacher ? "Class Performance" : "School Performance"} desc="FLN level distribution and trends" />
@@ -964,7 +979,6 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       const userState = currentUser.stateCode || 'PB';
       const stateSchools = SCHOOLS_MOCK.filter(s => s.stateCode === userState);
       const stateDistricts = [...new Set(stateSchools.map(s => s.districtCode))];
-      const [expandedDistRpt, setExpandedDistRpt] = useState<string | null>(null);
       return (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -989,7 +1003,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                   {isExpanded && (
                     <div className="ml-6 mt-2 space-y-4 pl-4 border-l-2 border-indigo-200">
                       {distSchools.map(sch => {
-                        const schStudents = STUDENTS_MOCK.filter(st => st.schoolId === sch.id);
+                        const schStudents = students.filter(st => st.schoolId === sch.id);
                         const schReports = REPORTS_MOCK.filter(r => schStudents.some(st => st.id === r.studentId));
                         const avgScore = schReports.length > 0 ? Math.round(schReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / schReports.length) : 0;
                         return (
@@ -1037,7 +1051,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
           <PageHeader title="Evaluation Reports" desc="Detailed assessment narratives and concept mastery breakdowns" />
           {REPORTS_MOCK.map(r => {
-            const student = STUDENTS_MOCK.find(s => s.id === r.studentId);
+            const student = students.find(s => s.id === r.studentId);
             const isExpanded = expandedReportId === r.id;
             
             // Mock exam questions and student responses for side-by-side preview
@@ -1129,7 +1143,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
         {['gps-vl-002', 'gps-jai-004', 'gps-lko-005', 'gps-amb-003'].map(id => {
           const sch = SCHOOLS_MOCK.find(s => s.id === id);
           if (!sch) return null;
-          const count = STUDENTS_MOCK.filter(s => s.schoolId === id).length;
+          const count = students.filter(s => s.schoolId === id).length;
           return (
             <div key={id} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3 hover:border-slate-400 transition-all">
               <div className="flex justify-between"><h3 className="font-bold text-slate-900">{sch.name}</h3><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${sch.strength === 'low' ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-emerald-700 bg-emerald-50 border border-emerald-200'}`}>{sch.strength === 'low' ? 'Low-Strength' : 'High-Strength'}</span></div>
@@ -1147,7 +1161,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
         <PageHeader title="Student Progress Tracking" desc="Monitor FLN level advancement across assigned schools" icon={<GraduationCap className="h-5 w-5" />} />
-        <div className="space-y-3">{STUDENTS_MOCK.sort((a, b) => b.currentLevel - a.currentLevel).map(s => (
+        <div className="space-y-3">{students.sort((a, b) => b.currentLevel - a.currentLevel).map(s => (
           <div key={s.id} className="flex items-center gap-4 p-3 border border-slate-200 rounded-lg">
             <div className="flex-1"><div className="font-medium text-sm">{s.name}</div><div className="text-xs text-slate-400">{s.classGroup} · Streak: {s.streak}</div></div>
             <div className="w-40"><div className="flex justify-between text-[10px] text-slate-500 mb-1"><span>L{s.currentLevel}</span><span>Target L{s.targetLevel}</span></div><div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(s.currentLevel / s.targetLevel) * 100}%` }} /></div></div>
@@ -1159,7 +1173,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   if (panel === 'attendance') {
-    const examAttendance = STUDENTS_MOCK.map(s => {
+    const examAttendance = students.map(s => {
       const reports = REPORTS_MOCK.filter(r => r.studentId === s.id);
       const examsGiven = reports.length;
       const lastExam = examsGiven > 0 ? new Date(Math.max(...reports.map(r => new Date(r.timestamp).getTime()))).toLocaleDateString() : 'N/A';
@@ -1234,7 +1248,6 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   if (panel === 'districts') {
     const userState = currentUser.stateCode || 'PB';
     const stateDistricts = DISTRICTS.filter(d => d.state === userState);
-    const [expandedDist, setExpandedDist] = useState<string | null>(null);
     const distSchools = expandedDist ? SCHOOLS_MOCK.filter(s => s.districtCode === expandedDist) : [];
     return (
       <div className="space-y-6">
@@ -1252,7 +1265,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
             <div className="space-y-2 mt-4">{stateDistricts.map(d => {
               const isExpanded = expandedDist === d.code;
               const schoolList = SCHOOLS_MOCK.filter(s => s.districtCode === d.code);
-              const studentCount = schoolList.reduce((a, s) => a + (STUDENTS_MOCK.filter(st => st.schoolId === s.id).length), 0);
+              const studentCount = schoolList.reduce((a, s) => a + (students.filter(st => st.schoolId === s.id).length), 0);
               return (
                 <div key={d.code}>
                   <button onClick={() => setExpandedDist(isExpanded ? null : d.code)} className={`w-full flex items-center gap-4 p-3 border rounded-lg text-left hover:bg-slate-50 transition-all ${isExpanded ? 'border-indigo-300 bg-indigo-50' : 'border-slate-100'}`}>
@@ -1278,10 +1291,10 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                   <h3 className="text-sm font-bold text-slate-900">Schools in {expandedDist}</h3>
                   <button onClick={() => setExpandedDist(null)} className="text-xs text-slate-400 hover:text-slate-600 font-mono">Close</button>
                 </div>
-                <div className="grid grid-cols-1 gap-4">{distSchools.map(sch => {
-                  const students = STUDENTS_MOCK.filter(st => st.schoolId === sch.id);
-                  const certified = students.filter(st => st.currentLevel >= 5).length;
-                  const avgLevel = students.length > 0 ? Math.round(students.reduce((a, st) => a + st.currentLevel, 0) / students.length) : 0;
+<div className="grid grid-cols-1 gap-4">{distSchools.map(sch => {
+                  const schoolStudents = students.filter(st => st.schoolId === sch.id);
+                  const certified = schoolStudents.filter(st => st.currentLevel >= 5).length;
+                  const avgLevel = schoolStudents.length > 0 ? Math.round(schoolStudents.reduce((a, st) => a + st.currentLevel, 0) / schoolStudents.length) : 0;
                   return (
                     <div key={sch.id} className="border border-slate-200 rounded-xl p-5 hover:border-slate-400 transition-all">
                       <div className="flex justify-between items-start">
@@ -1289,19 +1302,19 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                           <h4 className="font-bold text-slate-900">{sch.name}</h4>
                           <p className="text-xs text-slate-400">{sch.id} · {sch.blockCode} · {sch.stateCode}/{sch.districtCode}</p>
                         </div>
-                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${sch.strength === 'high' ? 'text-indigo-700 bg-indigo-50 border border-indigo-200' : 'text-amber-700 bg-amber-50 border border-amber-200'}`}>{sch.strength}</span>
+                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${sch.strength === 'high' ? 'text-indigo-700 bg-indigo-50 border-indigo-200' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>{sch.strength}</span>
                       </div>
                       <div className="grid grid-cols-4 gap-4 mt-4 pt-3 border-t border-slate-100">
-                        <div className="text-center"><div className="text-lg font-bold text-slate-900">{students.length}</div><div className="text-[10px] text-slate-400">Students</div></div>
+                        <div className="text-center"><div className="text-lg font-bold text-slate-900">{schoolStudents.length}</div><div className="text-[10px] text-slate-400">Students</div></div>
                         <div className="text-center"><div className="text-lg font-bold text-slate-900">{sch.teachersCount}</div><div className="text-[10px] text-slate-400">Teachers</div></div>
-                        <div className="text-center"><div className="text-lg font-bold text-emerald-600">{certified}</div><div className="text-[10px] text-slate-400">Certified</div></div>
+                        <div className="text-center"><div className="text-lg font-bold text-slate-900">{certified}</div><div className="text-[10px] text-slate-400">Certified</div></div>
                         <div className="text-center"><div className="text-lg font-bold text-slate-900">L{avgLevel}</div><div className="text-[10px] text-slate-400">Avg Level</div></div>
                       </div>
                       <div className="mt-3">
-                        <div className="flex justify-between text-[10px] text-slate-500 mb-1"><span>Certification Rate</span><span>{students.length > 0 ? Math.round(certified / students.length * 100) : 0}%</span></div>
-                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${students.length > 0 ? (certified / students.length) * 100 : 0}%` }} /></div>
+                        <div className="flex justify-between text-[10px] text-slate-500 mb-1"><span>Certification Rate</span><span>{schoolStudents.length > 0 ? Math.round(certified / schoolStudents.length * 100) : 0}%</span></div>
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${schoolStudents.length > 0 ? (certified / schoolStudents.length) * 100 : 0}%` }} /></div>
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5">{students.map(st => (
+                      <div className="mt-3 flex flex-wrap gap-1.5">{schoolStudents.map(st => (
                         <span key={st.id} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${st.levelHistory.length > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{st.name.split(' ')[0]} L{st.currentLevel}</span>
                       ))}</div>
                     </div>
@@ -1397,9 +1410,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <MetricCard title="Total Schools" value={SCHOOLS_MOCK.length} subtext="All facilities" icon={SchoolIcon} />
-          <MetricCard title="Total Students" value={STUDENTS_MOCK.length} subtext="Active roster" icon={Users} />
-          <MetricCard title="Avg FLN Level" value={`L${Math.round(STUDENTS_MOCK.reduce((a, s) => a + s.currentLevel, 0) / STUDENTS_MOCK.length)}`} subtext="System average" icon={BarChart3} />
-          <MetricCard title="Certification Rate" value={`${Math.round(STUDENTS_MOCK.filter(s => s.currentLevel >= 5).length / STUDENTS_MOCK.length * 100)}%`} subtext="Level 5+ benchmark" icon={Award} />
+          <MetricCard title="Total Students" value={students.length} subtext="Active roster" icon={Users} />
+          <MetricCard title="Avg FLN Level" value={students.length > 0 ? `L${Math.round(students.reduce((a, s) => a + s.currentLevel, 0) / students.length)}` : '—'} subtext="System average" icon={BarChart3} />
+          <MetricCard title="Certification Rate" value={students.length > 0 ? `${Math.round(students.filter(s => s.currentLevel >= 5).length / students.length * 100)}%` : '—'} subtext="Level 5+ benchmark" icon={Award} />
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
           <PageHeader title={title} desc={desc} icon={<BarChart3 className="h-5 w-5" />} />

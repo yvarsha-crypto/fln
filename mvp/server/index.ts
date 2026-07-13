@@ -1,13 +1,18 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import mongoose from 'mongoose';
 import { dbStore, UserRole, User, Student, School, Question, Worksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Announcement } from './db';
 import { generateAIDiagnostic, evaluateAIDiagnostic, generateAIPersonalizedWorksheet, evaluateAIWorksheet } from './gemini';
 import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
 import { fileURLToPath } from 'url';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import fs from 'fs';
+import jwt from 'jsonwebtoken';
+import v2StudentsRouter from './routes/students';
+import v2AuthRouter from './routes/auth';
+import { Student as StudentModel } from './models/Student';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -16,6 +21,97 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 async function startServer() {
   // Initialize file-based DB
   await dbStore.init();
+
+  // Connect to MongoDB (non-blocking — v2 routes work only if MongoDB is available)
+  const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fln';
+  let mongoConnected = false;
+  try {
+    await mongoose.connect(MONGODB_URI);
+    mongoConnected = true;
+    console.log('MongoDB connected:', MONGODB_URI);
+  } catch (mongoErr: any) {
+    console.warn('MongoDB not available — v2 API routes will return 503. Install MongoDB or set MONGODB_URI.');
+    console.warn(mongoErr.message);
+  }
+
+  // MongoDB-backed student data helpers — used by all v1 routes so students
+  // registered via v2 are visible everywhere (worksheets, diagnostics, evaluation, analytics).
+  async function getAllStudents(): Promise<any[]> {
+    if (!mongoConnected) return dbStore.getStudents();
+    const docs = await StudentModel.find({}).lean();
+    return docs.map((d: any) => ({
+      id: d._id.toString(),
+      name: d.name || d.studentName || '',
+      age: d.age || 0,
+      classGroup: d.classGroup || (d.class ? `Class ${d.class}` : ''),
+      section: d.section || '',
+      schoolId: d.schoolCode || d.schoolId || '',
+      teacherId: d.teacherId || '',
+      currentLevel: d.currentLevel ?? 1,
+      currentSubLevel: d.currentSubLevel ?? 0,
+      targetLevel: d.targetLevel ?? 2,
+      aadharMasked: d.aadharMasked || d.aadhaarNumber || '',
+      levelHistory: d.levelHistory || [],
+      streak: d.streak ?? 0,
+      studentId: d._id.toString(),
+      studentName: d.studentName || d.name,
+      dateOfBirth: d.dateOfBirth,
+      gender: d.gender,
+      aadhaarNumber: d.aadhaarNumber,
+      parentName: d.parentName,
+      class: d.class,
+      schoolCode: d.schoolCode || d.schoolId,
+      districtCode: d.districtCode,
+      districtName: d.districtName,
+      blockCode: d.blockCode,
+      blockName: d.blockName,
+      stateCode: d.stateCode,
+      stateName: d.stateName,
+      status: d.status || 'active',
+      createdBy: d.createdBy,
+      createdAt: d.createdAt instanceof Date ? d.createdAt.toISOString() : d.createdAt,
+      updatedBy: d.updatedBy,
+      updatedAt: d.updatedAt instanceof Date ? d.updatedAt.toISOString() : d.updatedAt,
+    }));
+  }
+
+  async function addStudentToDb(student: any): Promise<any> {
+    if (!mongoConnected) return dbStore.addStudent(student);
+    const doc = await StudentModel.create({
+      studentName: student.studentName || student.name,
+      name: student.name || student.studentName,
+      age: student.age,
+      dateOfBirth: student.dateOfBirth,
+      gender: student.gender || 'other',
+      aadhaarNumber: student.aadhaarNumber,
+      parentName: student.parentName,
+      class: student.class || parseInt(String(student.classGroup || '1').replace('Class ', ''), 10),
+      section: student.section,
+      schoolCode: student.schoolCode || student.schoolId,
+      schoolId: student.schoolId || student.schoolCode,
+      teacherId: student.teacherId,
+      currentLevel: student.currentLevel ?? 1,
+      currentSubLevel: student.currentSubLevel ?? 0,
+      targetLevel: student.targetLevel ?? 2,
+      levelHistory: student.levelHistory || [],
+      streak: student.streak ?? 0,
+      aadharMasked: student.aadharMasked || student.aadhaarNumber || '',
+      classGroup: student.classGroup || `Class ${student.class || 1}`,
+      status: student.status || 'active',
+      createdBy: student.createdBy,
+      createdAt: student.createdAt ? new Date(student.createdAt) : new Date(),
+      updatedBy: student.updatedBy,
+      updatedAt: student.updatedAt ? new Date(student.updatedAt) : undefined,
+    });
+    return { ...student, id: doc._id.toString(), studentId: doc._id.toString() };
+  }
+
+  async function updateStudentInDb(studentId: string, updates: any): Promise<any> {
+    if (!mongoConnected) return dbStore.updateStudent(studentId, updates);
+    const updated = await StudentModel.findByIdAndUpdate(studentId, { $set: updates }, { new: true }).lean();
+    if (!updated) return undefined;
+    return { ...updates, id: updated._id.toString(), studentId: updated._id.toString() };
+  }
 
   const app = express();
   app.use(express.json());
@@ -28,8 +124,15 @@ async function startServer() {
   function getAuthUser(req: express.Request): User | null {
     const authHeader = req.headers.authorization;
     if (!authHeader) return null;
-    const email = authHeader.replace('Bearer ', '').trim();
-    
+    let tokenOrEmail = authHeader.replace('Bearer ', '').trim();
+
+    // Try to decode as JWT (v2-style), fall back to plain email (v1-style)
+    try {
+      const decoded = jwt.verify(tokenOrEmail, process.env.JWT_SECRET || 'fln-dev-secret-change-in-production') as any;
+      if (decoded.email) tokenOrEmail = decoded.email;
+    } catch { /* not a JWT, treat as plain email */ }
+
+    const email = tokenOrEmail;
     // Find preseeded user in database
     const users = (dbStore as any).data?.users || [];
     const found = users.find((u: User) => u.email.toLowerCase() === email.toLowerCase());
@@ -103,9 +206,20 @@ async function startServer() {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // In a real production app we'd hash and compare, here we return JWT-like email token
+    const jwtToken = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        schoolId: user.schoolId,
+        assignedSchools: (user as any).assignedSchools,
+        role: user.role
+      },
+      process.env.JWT_SECRET || 'fln-dev-secret-change-in-production',
+      { expiresIn: '24h' }
+    );
     return res.json({
-      token: user.email,
+      token: jwtToken,
       user
     });
   });
@@ -309,84 +423,469 @@ async function startServer() {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const students = await dbStore.getStudents();
-    
-    // Mask Aadhar for non-Superadmins (§13.2 R-6)
-    const maskedStudents = students.map(s => {
-      if (user.role !== UserRole.SUPERADMIN) {
-        return { ...s, aadharMasked: 'XXXX-XXXX-' + s.aadharMasked.slice(-4) };
-      }
-      return s;
-    });
+    const students = await getAllStudents();
 
+    // Mask aadhar for non-Superadmins (§13.2 R-6).
+    // New field aadhaarNumber: 8 X + last 4 (Aadhaar) or first X + last 4 (BC).
+    // Legacy aadharMasked: XXXX-XXXX-NNNN format.
+    const isAadhaar = (v: string) => /^\d{12}$/.test(v);
+    const maskNew = (v: string) => {
+      if (!v) return v;
+      if (isAadhaar(v)) return 'X'.repeat(8) + v.slice(-4);
+      if (v.length > 4) return 'X'.repeat(v.length - 4) + v.slice(-4);
+      return v;
+    };
+    const maskLegacy = (v: string) => {
+      if (!v) return v;
+      if (v.startsWith('XXXX-XXXX-')) return v;
+      return 'XXXX-XXXX-' + v.slice(-4);
+    };
+    const transform = (s: any) => {
+      if (user.role === UserRole.SUPERADMIN) return s;
+      const out: any = { ...s };
+      if (s.aadhaarNumber) out.aadhaarNumber = maskNew(s.aadhaarNumber);
+      if (s.aadharMasked) out.aadharMasked = maskLegacy(s.aadharMasked);
+      return out;
+    };
+
+    let result = students;
     if (user.role === UserRole.SUPERADMIN) {
       return res.json(students);
     }
     if (user.role === UserRole.SCHOOL || user.role === UserRole.TEACHER) {
-      return res.json(maskedStudents.filter(s => s.schoolId === user.schoolId));
-    }
-    if (user.role === UserRole.VOLUNTEER) {
-      return res.json(maskedStudents.filter(s => user.assignedSchools?.includes(s.schoolId)));
+      result = students.filter((s) => s.schoolId === user.schoolId);
+    } else if (user.role === UserRole.VOLUNTEER) {
+      result = students.filter((s) => user.assignedSchools?.includes(s.schoolId));
+    } else {
+      result = students;
     }
 
-    res.json(maskedStudents);
+    return res.json(result.map(transform));
   });
 
   // Add Student
+  // Version_1.0.md schema:
+  //   { studentName, dateOfBirth, gender, aadhaarNumber, parentName, class, section }
+  // Legacy schema (backward-compat with the existing BulkUploadView):
+  //   { name, age, classGroup, section, schoolId, aadharNumber }
   app.post('/api/students', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { name, age, classGroup, section, schoolId, aadharNumber } = req.body;
-    if (!name || !age || !classGroup || !section || !schoolId || !aadharNumber) {
-      return res.status(400).json({ error: 'Missing required student details.' });
+    const body = req.body || {};
+
+    // === Resolve identity fields (new or legacy) ===
+    const studentName = String(body.studentName ?? body.name ?? '').trim();
+    const aadhaarRaw = String(body.aadhaarNumber ?? body.aadharNumber ?? '');
+    const aadhaarNumber = aadhaarRaw.replace(/\s+/g, '').toUpperCase();
+    const section = String(body.section ?? '').trim();
+    const parentName = String(body.parentName ?? '').trim();
+
+    // Class: prefer numeric `class`, else parse from legacy `classGroup` (e.g. "Class 3")
+    let klass = 0;
+    if (typeof body.class === 'number') {
+      klass = body.class;
+    } else if (typeof body.class === 'string' && body.class) {
+      const m = body.class.match(/\d+/);
+      if (m) klass = parseInt(m[0], 10);
+    } else if (typeof body.classGroup === 'string') {
+      const m = body.classGroup.match(/\d+/);
+      if (m) klass = parseInt(m[0], 10);
     }
 
-    // Enforce Aadhar formatting & masking (§13.2 R-6)
-    const rawAadhar = aadharNumber.replace(/[^0-9]/g, '');
-    if (rawAadhar.length < 4) {
-      return res.status(400).json({ error: 'Invalid identity document.' });
+    // dateOfBirth: prefer ISO string, else estimate from legacy `age`
+    let dateOfBirth: string = body.dateOfBirth;
+    if (!dateOfBirth && body.age) {
+      const ageY = parseInt(String(body.age), 10);
+      if (!isNaN(ageY)) {
+        const today = new Date();
+        dateOfBirth = `${today.getFullYear() - ageY}-01-01`;
+      }
     }
-    
-    // Enforce uniqueness check on raw Aadhar number
-    const studentsListForDuplicateCheck = await dbStore.getStudents();
-    const isDuplicate = studentsListForDuplicateCheck.some(s => s.aadharMasked === rawAadhar);
+
+    // Gender: default 'other' if missing (legacy callers don't send it)
+    const gender: 'male' | 'female' | 'other' = (['male', 'female', 'other'] as const).includes(body.gender)
+      ? body.gender
+      : 'other';
+
+    // === Server-derived school: never trust the body ===
+    const schoolId = user.schoolId;
+    if (!schoolId) {
+      return res.status(403).json({ error: 'Your account is not assigned to a school. Contact your School Principal.' });
+    }
+
+    // === Validation ===
+    if (!studentName) {
+      return res.status(400).json({ error: 'Student name is required.' });
+    }
+    if (studentName.length < 2 || studentName.length > 100) {
+      return res.status(400).json({ error: 'Student name must be 2–100 characters.' });
+    }
+    if (!dateOfBirth) {
+      return res.status(400).json({ error: 'Date of birth is required.' });
+    }
+    if (!aadhaarNumber) {
+      return res.status(400).json({ error: 'Aadhaar / Birth Certificate number is required.' });
+    }
+    const aadhaarIsNumeric12 = /^\d{12}$/.test(aadhaarNumber);
+    const aadhaarIsAlnum825 = /^[A-Z0-9]{8,25}$/.test(aadhaarNumber);
+    if (!aadhaarIsNumeric12 && !aadhaarIsAlnum825) {
+      return res.status(400).json({
+        error: 'Invalid Aadhaar / Birth Certificate. Use a 12-digit Aadhaar or 8–25 char alphanumeric Birth Certificate.'
+      });
+    }
+    if (!parentName) {
+      return res.status(400).json({ error: 'Parent / Guardian name is required.' });
+    }
+    if (parentName.length < 2 || parentName.length > 100) {
+      return res.status(400).json({ error: 'Parent / Guardian name must be 2–100 characters.' });
+    }
+    if (!klass || klass < 1 || klass > 12) {
+      return res.status(400).json({ error: 'Class must be an integer 1–12.' });
+    }
+    if (!section || section.length < 1 || section.length > 5) {
+      return res.status(400).json({ error: 'Section is required.' });
+    }
+
+    // DOB must be a valid past date; age 3–18
+    const dob = new Date(dateOfBirth);
+    if (isNaN(dob.getTime())) {
+      return res.status(400).json({ error: 'Invalid date of birth format.' });
+    }
+    const today = new Date();
+    if (dob.getTime() > today.getTime()) {
+      return res.status(400).json({ error: 'Date of birth must be in the past.' });
+    }
+    const ageY = (today.getTime() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    if (ageY < 3 || ageY > 18) {
+      return res.status(400).json({ error: 'Student age must be between 3 and 18 years.' });
+    }
+
+    // === Class / section scope: must be in the teacher's assignments ===
+    const classes = await dbStore.getClasses();
+    const isAssigned = classes.some(
+      (c) => c.className === `Class ${klass}` && c.section === section && c.teacherId === user.id
+    );
+    if (!isAssigned) {
+      return res.status(400).json({ error: 'Class / Section is not assigned to your account.' });
+    }
+
+    // === School record (for denormalized fields) ===
+    const schools = await dbStore.getSchools();
+    const school = schools.find((s) => s.id === schoolId);
+    if (!school) {
+      return res.status(403).json({ error: 'School not found for your account.' });
+    }
+
+    // === Duplicate guard: (schoolId, aadhaarNumber) ===
+    const allStudents = await getAllStudents();
+    const norm = (s: any) =>
+      String(s.aadhaarNumber ?? s.aadharMasked ?? '').replace(/\s+/g, '').toUpperCase();
+    const isDuplicate = allStudents.some(
+      (s) => s.schoolId === schoolId && norm(s) === aadhaarNumber
+    );
     if (isDuplicate) {
-      return res.status(400).json({ error: 'A student with this Aadhar / ID number is already registered.' });
+      return res.status(409).json({
+        error: 'A student with this Aadhaar / Birth Cert already exists in your school.'
+      });
     }
 
-    const newStudent: Student = {
-      id: 'STD_' + Math.floor(10000 + Math.random() * 90000),
-      name,
-      age: parseInt(age),
-      classGroup,
+    // === Generate MongoDB ObjectId (24-char hex) ===
+    const studentId = randomBytes(12).toString('hex');
+    const now = new Date().toISOString();
+    const age = Math.floor(ageY);
+
+    const newStudent: any = {
+      // Legacy fields (backward compat)
+      id: 'STD_' + studentId.substring(0, 8),
+      name: studentName,
+      age,
+      classGroup: `Class ${klass}`,
       section,
       schoolId,
-      teacherId: user.role === UserRole.TEACHER ? user.id : undefined,
-      currentLevel: 1, // Start at level 1 before diagnostic
+      teacherId: user.id,
+      currentLevel: 1,
       currentSubLevel: 0,
       targetLevel: 2,
-      aadharMasked: rawAadhar, // Store raw unmasked Aadhar in DB so Superadmin sees it, others get masked dynamically
+      aadharMasked: aadhaarNumber,
       levelHistory: [],
-      streak: 0
+      streak: 0,
+      // Version_1.0.md fields
+      studentId,
+      studentName,
+      dateOfBirth,
+      gender,
+      aadhaarNumber,
+      parentName,
+      class: klass,
+      schoolCode: school.id,
+      districtCode: school.districtCode,
+      districtName: school.districtName,
+      blockCode: school.blockCode,
+      blockName: school.blockName,
+      stateCode: school.stateCode,
+      stateName: school.stateName,
+      status: 'active',
+      createdBy: user.id,
+      createdAt: now
     };
 
-    await dbStore.addStudent(newStudent);
+    await addStudentToDb(newStudent);
+
+    await dbStore.addLog({
+      id: 'log_' + Date.now(),
+      timestamp: now,
+      schoolId,
+      schoolName: school.name,
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      activityType: 'verify',
+      status: 'Success',
+      details: `Onboarded and verified student: ${studentName} (Class ${klass} ${section})`
+    });
+
+    // Mask aadhaarNumber for the response (R-6)
+    const maskedAadhaar = aadhaarIsNumeric12
+      ? 'X'.repeat(8) + aadhaarNumber.slice(-4)
+      : 'X'.repeat(aadhaarNumber.length - 4) + aadhaarNumber.slice(-4);
+
+    res.json({
+      ...newStudent,
+      aadhaarNumber: maskedAadhaar
+    });
+  });
+
+  // PUT /api/students/:studentId — Update editable registration fields
+  // Version_1.0.md §6.7 Edit. Editable fields: studentName, dateOfBirth,
+  // gender, aadhaarNumber, parentName. Immutable: studentId, class, section,
+  // schoolId, schoolCode, createdBy, createdAt.
+  app.put('/api/students/:studentId', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { studentId } = req.params;
+    const students = await getAllStudents();
+    const student = students.find((s) => s.studentId === studentId || s.id === studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    // Tenant scope
+    if (user.role === UserRole.TEACHER || user.role === UserRole.SCHOOL) {
+      if (student.schoolId !== user.schoolId) {
+        return res.status(403).json({ error: 'You do not have access to this student.' });
+      }
+    } else if (user.role === UserRole.VOLUNTEER) {
+      if (!user.assignedSchools?.includes(student.schoolId)) {
+        return res.status(403).json({ error: 'You do not have access to this student.' });
+      }
+    }
+    // Class/section scope for Teachers
+    if (user.role === UserRole.TEACHER) {
+      const classes = await dbStore.getClasses();
+      const studentClassName = student.classGroup || (student.class ? `Class ${student.class}` : '');
+      const inScope = classes.some(
+        (c) => c.teacherId === user.id && c.className === studentClassName && c.section === student.section
+      );
+      if (!inScope) {
+        return res.status(403).json({ error: 'You can only edit students in your assigned classes.' });
+      }
+    }
+
+    const body = req.body || {};
+    const updates: any = {};
+
+    if (body.studentName !== undefined) {
+      const trimmed = String(body.studentName).trim();
+      if (trimmed.length < 2 || trimmed.length > 100) {
+        return res.status(400).json({ error: 'Student name must be 2–100 characters.' });
+      }
+      updates.studentName = trimmed;
+      updates.name = trimmed;
+    }
+
+    if (body.dateOfBirth !== undefined) {
+      const dob = new Date(body.dateOfBirth);
+      if (isNaN(dob.getTime())) {
+        return res.status(400).json({ error: 'Invalid date of birth.' });
+      }
+      if (dob.getTime() > Date.now()) {
+        return res.status(400).json({ error: 'Date of birth must be in the past.' });
+      }
+      const ageY = (Date.now() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      if (ageY < 3 || ageY > 18) {
+        return res.status(400).json({ error: 'Student age must be between 3 and 18.' });
+      }
+      updates.dateOfBirth = body.dateOfBirth;
+      updates.age = Math.floor(ageY);
+    }
+
+    if (body.gender !== undefined) {
+      if (!['male', 'female', 'other'].includes(body.gender)) {
+        return res.status(400).json({ error: 'Invalid gender.' });
+      }
+      updates.gender = body.gender;
+    }
+
+    if (body.aadhaarNumber !== undefined) {
+      const norm = String(body.aadhaarNumber).replace(/\s+/g, '').toUpperCase();
+      if (!/^\d{12}$/.test(norm) && !/^[A-Z0-9]{8,25}$/.test(norm)) {
+        return res.status(400).json({ error: 'Invalid Aadhaar / Birth Certificate. Use 12 digits or 8–25 alphanumeric.' });
+      }
+      // Duplicate guard — exclude this student
+      const isDup = students.some(
+        (s) =>
+          s !== student &&
+          s.schoolId === student.schoolId &&
+          String(s.aadhaarNumber ?? s.aadharMasked ?? '').toUpperCase() === norm
+      );
+      if (isDup) {
+        return res.status(409).json({
+          error: 'A student with this Aadhaar / Birth Cert already exists in your school.'
+        });
+      }
+      updates.aadhaarNumber = norm;
+      updates.aadharMasked = norm;
+    }
+
+    if (body.parentName !== undefined) {
+      const trimmed = String(body.parentName).trim();
+      if (trimmed.length < 2 || trimmed.length > 100) {
+        return res.status(400).json({ error: 'Parent / Guardian name must be 2–100 characters.' });
+      }
+      updates.parentName = trimmed;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No editable fields provided.' });
+    }
+
+    Object.assign(student, updates);
+    student.updatedAt = new Date().toISOString();
+    student.updatedBy = user.id;
+
+    // dbStore.updateStudent expects an id; prefer the new studentId, fall back to legacy id
+    const updateId = student.studentId || student.id;
+    await updateStudentInDb(updateId, student);
 
     await dbStore.addLog({
       id: 'log_' + Date.now(),
       timestamp: new Date().toISOString(),
-      schoolId: schoolId,
+      schoolId: student.schoolId,
       schoolName: 'GPS',
       userId: user.id,
       userEmail: user.email,
       userRole: user.role,
       activityType: 'verify',
       status: 'Success',
-      details: `Onboarded and verified student: ${name}`
+      details: `Updated student: ${student.studentName || student.name}`
     });
 
-    res.json(newStudent);
+    // Mask aadhaarNumber for response
+    const resp: any = { ...student };
+    if (resp.aadhaarNumber) {
+      const norm = resp.aadhaarNumber;
+      resp.aadhaarNumber =
+        /^\d{12}$/.test(norm) ? 'X'.repeat(8) + norm.slice(-4) : 'X'.repeat(norm.length - 4) + norm.slice(-4);
+    }
+    res.json(resp);
+  });
+
+  // POST /api/students/:studentId/deactivate — Soft delete (status='inactive')
+  // Version_1.0.md §6.8 Deactivate. Per SRS.md §13.1, hard-delete is reserved for non-Teacher roles.
+  app.post('/api/students/:studentId/deactivate', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { studentId } = req.params;
+    const students = await getAllStudents();
+    const student = students.find((s) => s.studentId === studentId || s.id === studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    // Tenant + class/section scope
+    if (user.role === UserRole.TEACHER || user.role === UserRole.SCHOOL) {
+      if (student.schoolId !== user.schoolId) {
+        return res.status(403).json({ error: 'You do not have access to this student.' });
+      }
+    }
+    if (user.role === UserRole.TEACHER) {
+      const classes = await dbStore.getClasses();
+      const studentClassName = student.classGroup || (student.class ? `Class ${student.class}` : '');
+      const inScope = classes.some(
+        (c) => c.teacherId === user.id && c.className === studentClassName && c.section === student.section
+      );
+      if (!inScope) {
+        return res.status(403).json({ error: 'You can only deactivate students in your assigned classes.' });
+      }
+    }
+
+    student.status = 'inactive';
+    student.updatedAt = new Date().toISOString();
+    student.updatedBy = user.id;
+    const updateId = student.studentId || student.id;
+    await updateStudentInDb(updateId, student);
+
+    await dbStore.addLog({
+      id: 'log_' + Date.now(),
+      timestamp: new Date().toISOString(),
+      schoolId: student.schoolId,
+      schoolName: 'GPS',
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      activityType: 'verify',
+      status: 'Success',
+      details: `Deactivated student: ${student.studentName || student.name}`
+    });
+
+    res.json({ studentId: student.studentId, status: 'inactive' });
+  });
+
+  // POST /api/students/:studentId/reactivate — Undo deactivate
+  app.post('/api/students/:studentId/reactivate', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { studentId } = req.params;
+    const students = await getAllStudents();
+    const student = students.find((s) => s.studentId === studentId || s.id === studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    if (user.role === UserRole.TEACHER || user.role === UserRole.SCHOOL) {
+      if (student.schoolId !== user.schoolId) {
+        return res.status(403).json({ error: 'You do not have access to this student.' });
+      }
+    }
+    if (user.role === UserRole.TEACHER) {
+      const classes = await dbStore.getClasses();
+      const studentClassName = student.classGroup || (student.class ? `Class ${student.class}` : '');
+      const inScope = classes.some(
+        (c) => c.teacherId === user.id && c.className === studentClassName && c.section === student.section
+      );
+      if (!inScope) {
+        return res.status(403).json({ error: 'You can only reactivate students in your assigned classes.' });
+      }
+    }
+
+    student.status = 'active';
+    student.updatedAt = new Date().toISOString();
+    student.updatedBy = user.id;
+    const updateId = student.studentId || student.id;
+    await updateStudentInDb(updateId, student);
+
+    await dbStore.addLog({
+      id: 'log_' + Date.now(),
+      timestamp: new Date().toISOString(),
+      schoolId: student.schoolId,
+      schoolName: 'GPS',
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      activityType: 'verify',
+      status: 'Success',
+      details: `Reactivated student: ${student.studentName || student.name}`
+    });
+
+    res.json({ studentId: student.studentId, status: 'active' });
   });
 
   // Update Student (Bypass / manual override for demo ease)
@@ -395,11 +894,11 @@ async function startServer() {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const { currentLevel, currentSubLevel, targetLevel, levelHistory } = req.body;
-    const students = await dbStore.getStudents();
+    const students = await getAllStudents();
     const student = students.find(s => s.id === req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
 
-    await dbStore.updateStudent(student.id, {
+    await updateStudentInDb(student.id, {
       currentLevel: Number(currentLevel),
       currentSubLevel: currentSubLevel !== undefined ? Number(currentSubLevel) : student.currentSubLevel,
       targetLevel: Number(targetLevel),
@@ -414,7 +913,7 @@ async function startServer() {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const students = await dbStore.getStudents();
+    const students = await getAllStudents();
     const student = students.find(s => s.id === req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
 
@@ -499,8 +998,8 @@ async function startServer() {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { questions, answers } = req.body;
-    const students = await dbStore.getStudents();
+    const { questions, answers } = req.body as { questions: Question[]; answers: Record<string, string> };
+    const students = await getAllStudents();
     const student = students.find(s => s.id === req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
 
@@ -627,7 +1126,7 @@ async function startServer() {
       reason: 'Onboarding Diagnostic Evaluation Placement'
     }];
 
-    await dbStore.updateStudent(student.id, {
+    await updateStudentInDb(student.id, {
       currentLevel: recommendedLevel,
       currentSubLevel: subLevel,
       targetLevel: Math.min(59, recommendedLevel + 1),
@@ -635,7 +1134,7 @@ async function startServer() {
     });
 
     // Create a special Evaluation Report with dynamic mock concept mastery
-    const conceptMastery: { [key: string]: string } = {
+    const conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' } = {
       'Number Sense': recommendedLevel >= 15 ? 'Strong' : 'Needs Practice',
       'Shapes': recommendedLevel >= 25 ? 'Strong' : 'Needs Practice',
       'Fractions': recommendedLevel >= 35 ? 'Strong' : 'Needs Practice',
@@ -744,7 +1243,7 @@ async function startServer() {
     }
 
     // Generate personalized questions for every student in the class
-    const students = await dbStore.getStudents();
+    const students = await getAllStudents();
     const classStudents = students.filter(s => s.classGroup === classObj.className && s.section === classObj.section && s.schoolId === classObj.schoolId);
 
     if (classStudents.length === 0) {
@@ -851,7 +1350,7 @@ async function startServer() {
     const ws = worksheets.find(w => w.id === worksheetId);
     if (!ws) return res.status(404).json({ error: 'Worksheet not found.' });
 
-    const students = await dbStore.getStudents();
+    const students = await getAllStudents();
     const classStudents = students.filter(
       s => s.classGroup === ws.className && s.section === ws.section && s.schoolId === ws.schoolId
     );
@@ -897,7 +1396,7 @@ async function startServer() {
     }
 
     try {
-      const students = await dbStore.getStudents();
+      const students = await getAllStudents();
       const student = students.find(s => s.id === studentId);
       if (!student) return res.status(404).json({ error: 'Student not found.' });
 
@@ -934,7 +1433,7 @@ async function startServer() {
     const ws = worksheets.find(w => w.id === worksheetId);
     if (!ws) return res.status(404).json({ error: 'Worksheet not found.' });
 
-    const students = await dbStore.getStudents();
+    const students = await getAllStudents();
     const student = students.find(s => s.id === studentId);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
 
@@ -1007,7 +1506,7 @@ async function startServer() {
       });
     }
 
-    await dbStore.updateStudent(student.id, {
+    await updateStudentInDb(student.id, {
       currentLevel: evaluation.recommendedLevel,
       currentSubLevel: newSubLevel,
       targetLevel: Math.min(59, evaluation.recommendedLevel + 1),
@@ -1086,7 +1585,7 @@ async function startServer() {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const students = await dbStore.getStudents();
+    const students = await getAllStudents();
     const schools = await dbStore.getSchools();
     const worksheets = await dbStore.getWorksheets();
     const reports = await dbStore.getEvaluationReports();
@@ -1482,7 +1981,7 @@ async function startServer() {
     }
 
     try {
-      const students = await dbStore.getStudents();
+      const students = await getAllStudents();
       const student = students.find(s => s.id === studentId);
       if (!student) return res.status(404).json({ error: 'Student not found.' });
 
@@ -1556,6 +2055,25 @@ async function startServer() {
       res.status(500).json({ error: err?.message || 'Failed to generate diagnostic.' });
     }
   });
+
+  // ── v2 API Routes (MongoDB / JWT) ──
+  if (mongoConnected) {
+    // MongoDB health-check middleware for all v2 routes
+    app.use('/api/v2', (req, res, next) => {
+      if (mongoose.connection.readyState !== 1) {
+        return res.status(503).json({ error: 'Database unavailable. Check MongoDB connection.' });
+      }
+      next();
+    });
+
+    app.use('/api/v2/auth', v2AuthRouter);
+    app.use('/api/v2/students', v2StudentsRouter);
+    console.log('v2 MongoDB/JWT API routes mounted at /api/v2/*');
+  } else {
+    app.use('/api/v2', (_req, res) => {
+      res.status(503).json({ error: 'MongoDB not connected. v2 API is unavailable.' });
+    });
+  }
 
   // Vite integration
   if (process.env.NODE_ENV !== "production") {

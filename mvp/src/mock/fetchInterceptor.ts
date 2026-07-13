@@ -173,9 +173,25 @@ export function setupFetchInterceptor() {
     init?: RequestInit
   ): Promise<Response> {
     const url = typeof input === 'string' ? input : (input as Request).url;
-    
+
     // Only intercept /api/ routes
     if (!url.includes('/api/')) {
+      return originalFetch(input, init);
+    }
+
+    // Bypass mock for student/worksheet/evaluation/diagnostic routes — these now
+    // hit the real server which reads/writes MongoDB via getAllStudents(),
+    // addStudentToDb(), and updateStudentInDb() helpers.
+    if (
+      url.includes('/api/students') ||
+      url.includes('/api/v2/students') ||
+      url.includes('/api/worksheets/generate') ||
+      url.includes('/api/worksheets/generate-pdf') ||
+      url.includes('/api/worksheets/generate-level-pdf') ||
+      url.includes('/api/evaluation/submit') ||
+      (url.includes('/api/evaluation/') && /\/api\/evaluation\/[^/]+\/history/.test(url)) ||
+      url.includes('/api/diagnostic/single')
+    ) {
       return originalFetch(input, init);
     }
 
@@ -318,7 +334,7 @@ export function setupFetchInterceptor() {
       // 11. GET /api/students
       if (path === '/api/students' && method === 'GET') {
         if (!currentUser) return errorResponse('Unauthorized', 401);
-        
+
         let filtered = db.students;
         if (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.TEACHER) {
           filtered = db.students.filter(s => s.schoolId === currentUser.schoolId);
@@ -326,62 +342,362 @@ export function setupFetchInterceptor() {
           filtered = db.students.filter(s => currentUser.assignedSchools?.includes(s.schoolId));
         }
 
-        // Mask Aadhar for non-Superadmins
-        const mapped = filtered.map(s => {
-          if (currentUser.role !== UserRole.SUPERADMIN) {
-            return { ...s, aadharMasked: 'XXXX-XXXX-' + s.aadharMasked.slice(-4) };
-          }
-          return s;
+        // Mask aadhar for non-Superadmins
+        const isAadhaar = (v: string) => /^\d{12}$/.test(v);
+        const maskNew = (v: string) => {
+          if (!v) return v;
+          if (isAadhaar(v)) return 'X'.repeat(8) + v.slice(-4);
+          if (v.length > 4) return 'X'.repeat(v.length - 4) + v.slice(-4);
+          return v;
+        };
+        const maskLegacy = (v: string) => {
+          if (!v) return v;
+          if (v.startsWith('XXXX-XXXX-')) return v;
+          return 'XXXX-XXXX-' + v.slice(-4);
+        };
+        const mapped = filtered.map((s: any) => {
+          if (currentUser.role === UserRole.SUPERADMIN) return s;
+          const out: any = { ...s };
+          if (s.aadhaarNumber) out.aadhaarNumber = maskNew(s.aadhaarNumber);
+          if (s.aadharMasked) out.aadharMasked = maskLegacy(s.aadharMasked);
+          return out;
         });
 
         return jsonResponse(mapped);
       }
 
-      // 12. POST /api/students (Add student)
+      // 12. POST /api/students (Add student — accepts new or legacy schema)
       if (path === '/api/students' && method === 'POST') {
         if (!currentUser) return errorResponse('Unauthorized', 401);
-        const { name, age, classGroup, section, schoolId, aadharNumber } = bodyData;
-        if (!name || !age || !classGroup || !section || !schoolId || !aadharNumber) {
-          return errorResponse('Missing required student details.');
+        const body = bodyData || {};
+
+        const studentName = String(body.studentName ?? body.name ?? '').trim();
+        const aadhaarRaw = String(body.aadhaarNumber ?? body.aadharNumber ?? '');
+        const aadhaarNumber = aadhaarRaw.replace(/\s+/g, '').toUpperCase();
+        const section = String(body.section ?? '').trim();
+        const parentName = String(body.parentName ?? '').trim();
+
+        let klass = 0;
+        if (typeof body.class === 'number') {
+          klass = body.class;
+        } else if (typeof body.class === 'string' && body.class) {
+          const m = body.class.match(/\d+/);
+          if (m) klass = parseInt(m[0], 10);
+        } else if (typeof body.classGroup === 'string') {
+          const m = body.classGroup.match(/\d+/);
+          if (m) klass = parseInt(m[0], 10);
         }
 
-        const cleanAadhar = aadharNumber.replace(/[^0-9]/g, '');
-        const masked = `XXXX-XXXX-${cleanAadhar.slice(-4)}`;
+        let dateOfBirth: string = body.dateOfBirth;
+        if (!dateOfBirth && body.age) {
+          const ageY = parseInt(String(body.age), 10);
+          if (!isNaN(ageY)) {
+            const today = new Date();
+            dateOfBirth = `${today.getFullYear() - ageY}-01-01`;
+          }
+        }
 
-        const newStd: Student = {
-          id: 'STD_' + Math.floor(10000 + Math.random() * 90000),
-          name,
-          age: parseInt(age, 10),
-          classGroup,
+        const gender: 'male' | 'female' | 'other' = (['male', 'female', 'other'] as const).includes(body.gender)
+          ? body.gender
+          : 'other';
+
+        const schoolId = currentUser.schoolId;
+        if (!schoolId) {
+          return errorResponse('Your account is not assigned to a school.');
+        }
+        if (!studentName || studentName.length < 2) {
+          return errorResponse('Student name is required (2–100 chars).');
+        }
+        if (!aadhaarNumber) {
+          return errorResponse('Aadhaar / Birth Certificate number is required.');
+        }
+        const aadhaarIsNumeric12 = /^\d{12}$/.test(aadhaarNumber);
+        const aadhaarIsAlnum825 = /^[A-Z0-9]{8,25}$/.test(aadhaarNumber);
+        if (!aadhaarIsNumeric12 && !aadhaarIsAlnum825) {
+          return errorResponse('Invalid Aadhaar / Birth Certificate. Use 12 digits or 8–25 alphanumeric.');
+        }
+        if (!parentName) {
+          return errorResponse('Parent / Guardian name is required.');
+        }
+        if (!klass || klass < 1 || klass > 12) {
+          return errorResponse('Class must be 1–12.');
+        }
+        if (!section) {
+          return errorResponse('Section is required.');
+        }
+        if (!dateOfBirth) {
+          return errorResponse('Date of birth is required.');
+        }
+        const dob = new Date(dateOfBirth);
+        if (isNaN(dob.getTime())) {
+          return errorResponse('Invalid date of birth.');
+        }
+        const today = new Date();
+        if (dob.getTime() > today.getTime()) {
+          return errorResponse('Date of birth must be in the past.');
+        }
+        const ageY = (today.getTime() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+        if (ageY < 3 || ageY > 18) {
+          return errorResponse('Student age must be between 3 and 18 years.');
+        }
+
+        // Class / section scope: must be in the teacher's assignments
+        const assigned = db.classes.find(
+          (c) => c.className === `Class ${klass}` && c.section === section && c.teacherId === currentUser.id
+        );
+        if (!assigned) {
+          return errorResponse('Class / Section is not assigned to your account.');
+        }
+
+        const school = db.schools.find((s) => s.id === schoolId);
+
+        // Duplicate guard
+        const norm = (s: any) =>
+          String(s.aadhaarNumber ?? s.aadharMasked ?? '').replace(/\s+/g, '').toUpperCase();
+        const isDuplicate = db.students.some(
+          (s) => s.schoolId === schoolId && norm(s) === aadhaarNumber
+        );
+        if (isDuplicate) {
+          return errorResponse('A student with this Aadhaar / Birth Cert already exists in your school.', 409);
+        }
+
+        // Generate MongoDB-style ObjectId (24-char hex)
+        const studentId = Array.from({ length: 24 }, () =>
+          Math.floor(Math.random() * 16).toString(16)
+        ).join('');
+        const now = new Date().toISOString();
+        const age = Math.floor(ageY);
+
+        const newStd: any = {
+          id: 'STD_' + studentId.substring(0, 8),
+          name: studentName,
+          age,
+          classGroup: `Class ${klass}`,
           section,
           schoolId,
-          teacherId: currentUser.role === UserRole.TEACHER ? currentUser.id : undefined,
+          teacherId: currentUser.id,
           currentLevel: 1,
           currentSubLevel: 0,
           targetLevel: 2,
-          aadharMasked: masked,
+          aadharMasked: aadhaarNumber,
           levelHistory: [],
-          streak: 0
+          streak: 0,
+          studentId,
+          studentName,
+          dateOfBirth,
+          gender,
+          aadhaarNumber,
+          parentName,
+          class: klass,
+          schoolCode: school?.id,
+          districtCode: school?.districtCode,
+          districtName: undefined,
+          blockCode: school?.blockCode,
+          blockName: undefined,
+          stateCode: school?.stateCode,
+          stateName: undefined,
+          status: 'active',
+          createdBy: currentUser.id,
+          createdAt: now
         };
 
         db.students.push(newStd);
 
-        // Add to logbook
+        db.logbook.unshift({
+          id: 'log_' + Date.now(),
+          timestamp: now,
+          schoolId,
+          schoolName: school?.name || 'GPS',
+          userId: currentUser.id,
+          userEmail: currentUser.email,
+          userRole: currentUser.role,
+          activityType: 'verify',
+          status: 'Success',
+          details: `Onboarded and verified student: ${studentName} (Class ${klass} ${section})`
+        });
+
+        saveMockDB(db);
+
+        // Mask aadhaarNumber for response
+        const maskedAadhaar = aadhaarIsNumeric12
+          ? 'X'.repeat(8) + aadhaarNumber.slice(-4)
+          : 'X'.repeat(aadhaarNumber.length - 4) + aadhaarNumber.slice(-4);
+
+        return jsonResponse({
+          ...newStd,
+          aadhaarNumber: maskedAadhaar
+        });
+      }
+
+      // 13a. PUT /api/students/:studentId — Update registration fields
+      const matchStudentPut = path.match(/^\/api\/students\/([^\/]+)$/);
+      if (matchStudentPut && method === 'PUT') {
+        if (!currentUser) return errorResponse('Unauthorized', 401);
+        const sid = matchStudentPut[1];
+        const idx = db.students.findIndex(
+          (s) => s.studentId === sid || s.id === sid
+        );
+        if (idx === -1) return errorResponse('Student not found.', 404);
+        const student = db.students[idx];
+
+        // Tenant scope (mock teacher scoped to schoolId)
+        if (currentUser.role === UserRole.TEACHER || currentUser.role === UserRole.SCHOOL) {
+          if (student.schoolId !== currentUser.schoolId) {
+            return errorResponse('You do not have access to this student.', 403);
+          }
+        }
+
+        const body = bodyData || {};
+        const updates: any = {};
+        if (body.studentName !== undefined) {
+          const trimmed = String(body.studentName).trim();
+          if (trimmed.length < 2 || trimmed.length > 100) {
+            return errorResponse('Student name must be 2–100 characters.');
+          }
+          updates.studentName = trimmed;
+          updates.name = trimmed;
+        }
+        if (body.dateOfBirth !== undefined) {
+          const dob = new Date(body.dateOfBirth);
+          if (isNaN(dob.getTime())) {
+            return errorResponse('Invalid date of birth.');
+          }
+          if (dob.getTime() > Date.now()) {
+            return errorResponse('Date of birth must be in the past.');
+          }
+          const ageY = (Date.now() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+          if (ageY < 3 || ageY > 18) {
+            return errorResponse('Student age must be between 3 and 18.');
+          }
+          updates.dateOfBirth = body.dateOfBirth;
+          updates.age = Math.floor(ageY);
+        }
+        if (body.gender !== undefined) {
+          if (!['male', 'female', 'other'].includes(body.gender)) {
+            return errorResponse('Invalid gender.');
+          }
+          updates.gender = body.gender;
+        }
+        if (body.aadhaarNumber !== undefined) {
+          const norm = String(body.aadhaarNumber).replace(/\s+/g, '').toUpperCase();
+          if (!/^\d{12}$/.test(norm) && !/^[A-Z0-9]{8,25}$/.test(norm)) {
+            return errorResponse('Invalid Aadhaar / Birth Certificate.');
+          }
+          const isDup = db.students.some(
+            (s, i) =>
+              i !== idx &&
+              s.schoolId === student.schoolId &&
+              String(s.aadhaarNumber ?? s.aadharMasked ?? '').toUpperCase() === norm
+          );
+          if (isDup) {
+            return errorResponse(
+              'A student with this Aadhaar / Birth Cert already exists in your school.',
+              409
+            );
+          }
+          updates.aadhaarNumber = norm;
+          updates.aadharMasked = norm;
+        }
+        if (body.parentName !== undefined) {
+          const trimmed = String(body.parentName).trim();
+          if (trimmed.length < 2 || trimmed.length > 100) {
+            return errorResponse('Parent / Guardian name must be 2–100 characters.');
+          }
+          updates.parentName = trimmed;
+        }
+        if (Object.keys(updates).length === 0) {
+          return errorResponse('No editable fields provided.');
+        }
+
+        Object.assign(student, updates);
+        student.updatedAt = new Date().toISOString();
+        student.updatedBy = currentUser.id;
+
+        saveMockDB(db);
+
+        const resp: any = { ...student };
+        if (resp.aadhaarNumber) {
+          const n = resp.aadhaarNumber;
+          resp.aadhaarNumber =
+            /^\d{12}$/.test(n) ? 'X'.repeat(8) + n.slice(-4) : 'X'.repeat(n.length - 4) + n.slice(-4);
+        }
+        return jsonResponse(resp);
+      }
+
+      // 13b. POST /api/students/:studentId/deactivate
+      const matchStudentDeactivate = path.match(/^\/api\/students\/([^\/]+)\/deactivate$/);
+      if (matchStudentDeactivate && method === 'POST') {
+        if (!currentUser) return errorResponse('Unauthorized', 401);
+        const sid = matchStudentDeactivate[1];
+        const idx = db.students.findIndex(
+          (s) => s.studentId === sid || s.id === sid
+        );
+        if (idx === -1) return errorResponse('Student not found.', 404);
+        const student = db.students[idx];
+
+        if (currentUser.role === UserRole.TEACHER || currentUser.role === UserRole.SCHOOL) {
+          if (student.schoolId !== currentUser.schoolId) {
+            return errorResponse('You do not have access to this student.', 403);
+          }
+        }
+
+        student.status = 'inactive';
+        student.updatedAt = new Date().toISOString();
+        student.updatedBy = currentUser.id;
+
         db.logbook.unshift({
           id: 'log_' + Date.now(),
           timestamp: new Date().toISOString(),
-          schoolId,
+          schoolId: student.schoolId,
           schoolName: 'GPS',
           userId: currentUser.id,
           userEmail: currentUser.email,
           userRole: currentUser.role,
           activityType: 'verify',
           status: 'Success',
-          details: `Onboarded and verified student: ${name}`
+          details: `Deactivated student: ${student.studentName || student.name}`
         });
 
         saveMockDB(db);
-        return jsonResponse(newStd);
+        return jsonResponse({ studentId: student.studentId, status: 'inactive' });
+      }
+
+      // 13c. POST /api/students/:studentId/reactivate
+      const matchStudentReactivate = path.match(/^\/api\/students\/([^\/]+)\/reactivate$/);
+      if (matchStudentReactivate && method === 'POST') {
+        if (!currentUser) return errorResponse('Unauthorized', 401);
+        const sid = matchStudentReactivate[1];
+        const idx = db.students.findIndex(
+          (s) => s.studentId === sid || s.id === sid
+        );
+        if (idx === -1) return errorResponse('Student not found.', 404);
+        const student = db.students[idx];
+
+        if (currentUser.role === UserRole.TEACHER || currentUser.role === UserRole.SCHOOL) {
+          if (student.schoolId !== currentUser.schoolId) {
+            return errorResponse('You do not have access to this student.', 403);
+          }
+        }
+
+        student.status = 'active';
+        student.updatedAt = new Date().toISOString();
+        student.updatedBy = currentUser.id;
+
+        db.logbook.unshift({
+          id: 'log_' + Date.now(),
+          timestamp: new Date().toISOString(),
+          schoolId: student.schoolId,
+          schoolName: 'GPS',
+          userId: currentUser.id,
+          userEmail: currentUser.email,
+          userRole: currentUser.role,
+          activityType: 'verify',
+          status: 'Success',
+          details: `Reactivated student: ${student.studentName || student.name}`
+        });
+
+        saveMockDB(db);
+        return jsonResponse({ studentId: student.studentId, status: 'active' });
       }
 
       // 13. PATCH /api/students/:id (Bypass Level override)

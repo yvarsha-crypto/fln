@@ -69,6 +69,9 @@ export const Layout: React.FC<LayoutProps> = ({
           view: 'students',
           icon: GraduationCap,
           subItems: [
+            { name: 'Register Student',     view: 'register_student' },
+            { name: 'Registered Students',  view: 'registered_students' },
+            { name: 'Bulk Upload',          view: 'bulk_upload' },
             { name: 'Student List', view: 'student_list' },
             { name: 'Student Profile', view: 'student_profile' },
             { name: 'Performance', view: 'performance' }
@@ -94,6 +97,9 @@ export const Layout: React.FC<LayoutProps> = ({
           view: 'students',
           icon: GraduationCap,
           subItems: [
+            { name: 'Register Student',     view: 'register_student' },
+            { name: 'Registered Students',  view: 'registered_students' },
+            { name: 'Bulk Upload',          view: 'bulk_upload' },
             { name: 'Student List', view: 'student_list' },
             { name: 'Student Profile', view: 'student_profile' },
             { name: 'Performance', view: 'performance' }

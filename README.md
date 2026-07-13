@@ -84,13 +84,85 @@ This project is built on the **MERN stack**:
 
 ## Getting Started
 
-> Setup instructions (installation, environment variables, running locally) will be added here as the codebase matures.
+This is a full-stack MERN application. To get the app running on your machine, you'll need Node.js, MongoDB, and the steps below.
+
+### Prerequisites
+
+- **Node.js** ≥ 20
+- **MongoDB** ≥ 6 (running locally on `mongodb://localhost:27017` or set `MONGODB_URI` env var)
+- **Git**
+
+### Quick Start
 
 ```bash
+# 1. Clone the repo
 git clone https://github.com/vicharanashala/fln.git
-cd fln
-# setup instructions coming soon
+cd fln/mvp
+
+# 2. Install dependencies
+npm install
+
+# 3. Start MongoDB locally (or skip if it's already running)
+#    macOS:   brew services start mongodb-community
+#    Linux:   sudo systemctl start mongod
+#    Windows: net start MongoDB
+
+# 4. Seed required data into MongoDB (teachers + volunteers + sample students)
+npm run seed:all
+#    Creates:
+#    • 16 teacher accounts (one per school; password: Teacher@123)
+#    • 8 volunteer accounts (password: Volunteer@123)
+#    • 60 sample students (3 per class, distributed across 20 classes)
+#    All operations are idempotent — safe to re-run.
+
+# 5. Start the dev server (frontend + API)
+npm run dev
+#    Opens on http://localhost:3000
+
+# 6. Login as a teacher or volunteer, e.g.:
+#    Teacher:  gps-mt-001.t01@fln.org / Teacher@123
+#    Volunteer: vol.rahul@fln.org / Volunteer@123
 ```
+
+### Data Storage Model
+
+The app uses **two persistent stores** that work together:
+
+| Store | Location | Contents |
+|---|---|---|
+| **MongoDB** (live) | `mongodb://localhost:27017/fln` | Teachers, registered students |
+| **JSON file** (legacy, read-only) | `mvp/data/db.json` | Schools, classes, users, questions, worksheets, answer submissions, evaluation reports, tickets, logbook, announcements |
+
+When you log in, the app reads users/teachers from both stores. When a teacher generates a diagnostic test or worksheet, the server reads the class roster from MongoDB (students) and the JSON file (classes, schools).
+
+### Useful Commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the dev server (frontend + backend) |
+| `npm test` | Run all tests (server + client) |
+| `npm run seed:teachers` | Seed only teachers into MongoDB (idempotent) |
+| `npm run seed:volunteers` | Seed only volunteers into MongoDB (idempotent) |
+| `npm run seed:students` | Seed only sample students into MongoDB (idempotent) |
+| `npm run seed:all` | Seed teachers + volunteers + sample students (idempotent) |
+| `npm run build` | Build the production bundle |
+
+### Environment Variables (optional)
+
+```bash
+# Custom MongoDB connection (default: mongodb://localhost:27017/fln)
+MONGODB_URI=mongodb://localhost:27017/fln npm run dev
+
+# Custom server port (default: 3000)
+PORT=4000 npm run dev
+```
+
+### Troubleshooting
+
+- **"MongoDB not available" warning on startup** — Make sure MongoDB is running. The app will still start, but v2 API routes that need MongoDB will return 503.
+- **Empty student lists in dashboards** — Run `npm run seed:all` to populate sample students.
+- **"Invalid email or password" when logging in as a teacher** — Teachers must be seeded first (`npm run seed:teachers`). The default password is `Teacher@123`.
+- **"Invalid email or password" when logging in as a volunteer** — Volunteers must be seeded first (`npm run seed:volunteers`). The default password is `Volunteer@123`.
 
 ## Contribution Guidelines
 

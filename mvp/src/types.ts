@@ -42,6 +42,7 @@ export interface ClassGroup {
 }
 
 export interface Student {
+  // === Legacy fields (kept for backward compatibility with pre-Version_1.0 components) ===
   id: string;
   name: string;
   age: number;
@@ -55,6 +56,38 @@ export interface Student {
   aadharMasked: string;
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
   streak: number;
+
+  // === Version_1.0.md fields (additive, optional for legacy records) ===
+  /** MongoDB ObjectId (24-char hex). Generated server-side. Never user-entered. */
+  studentId?: string;
+  /** 2–100 chars. Preferred over `name`. */
+  studentName?: string;
+  /** ISO `YYYY-MM-DD`. Preferred over `age`. */
+  dateOfBirth?: string;
+  /** Required at registration time. */
+  gender?: 'male' | 'female' | 'other';
+  /** Raw value (12 digits OR 8–25 alphanumeric). Stored unmasked; masked on response. */
+  aadhaarNumber?: string;
+  /** 2–100 chars. Parent or guardian name. */
+  parentName?: string;
+  /** Integer 1–12. Preferred over `classGroup`. */
+  class?: number;
+  /** Human-readable school code, e.g. `gps-mt-001`. Denormalized from `School.id`. */
+  schoolCode?: string;
+  /** Denormalized higher-geography fields (from the School record). */
+  districtCode?: string;
+  districtName?: string;
+  blockCode?: string;
+  blockName?: string;
+  stateCode?: string;
+  stateName?: string;
+  /** Soft-delete lifecycle. `active` for live, `inactive` for deactivated. */
+  status?: 'active' | 'inactive';
+  /** Audit fields. */
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 export interface Question {
@@ -150,6 +183,11 @@ export interface LogEntry {
   activityType: 'download' | 'print' | 'conduct' | 'scan' | 'verify' | 'ticket';
   status: 'Success' | 'Failed' | 'Delayed';
   details: string;
+  // Optional audit UI fields
+  level?: UserRole | string;
+  type?: string;
+  scope?: string;
+  time?: string;
 }
 
 export interface Announcement {

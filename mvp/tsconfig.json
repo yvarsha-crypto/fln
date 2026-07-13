@@ -21,6 +21,7 @@
       ]
     },
     "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
     "noEmit": true
   },
   "include": [
@@ -28,6 +29,9 @@
     "server/**/*"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx"
   ]
 }
