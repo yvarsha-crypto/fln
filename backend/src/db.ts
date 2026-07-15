@@ -62,6 +62,18 @@ export interface Student {
   aadharMasked: string; // Mandatory, unique identifier masked (§13.2 R-6)
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
   streak: number;
+  // Extended student registration fields
+  studentName?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  aadhaarNumber?: string;
+  parentName?: string;
+  status?: string;
+  schoolCode?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
 }
 
 export interface Question {
@@ -310,6 +322,16 @@ export class DBStore {
       await this.save();
     }
     return s;
+  }
+
+  async deleteStudent(studentId: string) {
+    const idx = this.data!.students.findIndex(x => x.id === studentId);
+    if (idx !== -1) {
+      this.data!.students.splice(idx, 1);
+      await this.save();
+      return true;
+    }
+    return false;
   }
 
   async addWorksheet(ws: Worksheet) {

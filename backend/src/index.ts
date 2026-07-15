@@ -343,13 +343,22 @@ async function startServer() {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { name, age, classGroup, section, schoolId, aadharNumber } = req.body;
-    if (!name || !age || !classGroup || !section || !schoolId || !aadharNumber) {
+    const { name, age, classGroup, section, schoolId, aadharNumber, studentName, dateOfBirth, gender, aadhaarNumber, parentName, schoolCode } = req.body;
+
+    // Accept both old (name, age, aadharNumber) and new (studentName, dateOfBirth, aadhaarNumber) field styles
+    const resolvedName = studentName || name;
+    const resolvedAadhar = aadhaarNumber || aadharNumber || '';
+    const resolvedSchoolId = schoolCode || schoolId || user.schoolId || '';
+    const resolvedClassGroup = classGroup || '';
+    const resolvedSection = section || 'A';
+    const resolvedAge = age ? parseInt(age, 10) : dateOfBirth ? Math.floor((Date.now() - new Date(dateOfBirth).getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : 0;
+
+    if (!resolvedName || !resolvedAadhar || !resolvedClassGroup || !resolvedSchoolId) {
       return res.status(400).json({ error: 'Missing required student details.' });
     }
 
     // Enforce Aadhar formatting & masking (§13.2 R-6)
-    const rawAadhar = aadharNumber.replace(/[^0-9]/g, '');
+    const rawAadhar = resolvedAadhar.replace(/[^0-9A-Za-z]/g, '');
     if (rawAadhar.length < 4) {
       return res.status(400).json({ error: 'Invalid identity document.' });
     }
@@ -361,35 +370,48 @@ async function startServer() {
       return res.status(400).json({ error: 'A student with this Aadhar / ID number is already registered.' });
     }
 
+    const studentId = 'STD_' + Math.floor(10000 + Math.random() * 90000);
+    const now = new Date().toISOString();
     const newStudent: Student = {
-      id: 'STD_' + Math.floor(10000 + Math.random() * 90000),
-      name,
-      age: parseInt(age),
-      classGroup,
-      section,
-      schoolId,
+      id: studentId,
+      name: resolvedName,
+      age: resolvedAge,
+      classGroup: resolvedClassGroup,
+      section: resolvedSection,
+      schoolId: resolvedSchoolId,
       teacherId: user.role === UserRole.TEACHER ? user.id : undefined,
-      currentLevel: 1, // Start at level 1 before diagnostic
+      currentLevel: 1,
       currentSubLevel: 0,
       targetLevel: 2,
-      aadharMasked: rawAadhar, // Store raw unmasked Aadhar in DB so Superadmin sees it, others get masked dynamically
+      aadharMasked: rawAadhar,
       levelHistory: [],
-      streak: 0
+      streak: 0,
+      studentName: resolvedName,
+      dateOfBirth: dateOfBirth || '',
+      gender: gender || '',
+      aadhaarNumber: rawAadhar,
+      parentName: parentName || '',
+      status: 'active',
+      schoolCode: resolvedSchoolId,
+      createdBy: user.email,
+      createdAt: now,
+      updatedBy: user.email,
+      updatedAt: now
     };
 
     await dbStore.addStudent(newStudent);
 
     await dbStore.addLog({
       id: 'log_' + Date.now(),
-      timestamp: new Date().toISOString(),
-      schoolId: schoolId,
+      timestamp: now,
+      schoolId: resolvedSchoolId,
       schoolName: 'GPS',
       userId: user.id,
       userEmail: user.email,
       userRole: user.role,
       activityType: 'verify',
       status: 'Success',
-      details: `Onboarded and verified student: ${name}`
+      details: `Onboarded and verified student: ${resolvedName}`
     });
 
     res.json(newStudent);
@@ -413,6 +435,98 @@ async function startServer() {
     });
 
     res.json({ success: true });
+  });
+
+  // Full Update Student (extended registration fields)
+  app.put('/api/students/:id', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const students = await dbStore.getStudents();
+    const student = students.find(s => s.id === req.params.id);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    const { studentName, dateOfBirth, gender, aadhaarNumber, parentName } = req.body;
+    const now = new Date().toISOString();
+    const updates: Partial<Student> = { updatedBy: user.email, updatedAt: now };
+
+    if (studentName !== undefined) {
+      updates.name = studentName;
+      updates.studentName = studentName;
+    }
+    if (dateOfBirth !== undefined) {
+      updates.dateOfBirth = dateOfBirth;
+      updates.age = Math.floor((Date.now() - new Date(dateOfBirth).getTime()) / (1000 * 60 * 60 * 24 * 365.25));
+    }
+    if (gender !== undefined) updates.gender = gender;
+    if (aadhaarNumber !== undefined) {
+      const raw = aadhaarNumber.replace(/[^0-9A-Za-z]/g, '');
+      if (raw.length >= 4) {
+        updates.aadharMasked = raw;
+        updates.aadhaarNumber = raw;
+      }
+    }
+    if (parentName !== undefined) updates.parentName = parentName;
+
+    await dbStore.updateStudent(student.id, updates);
+    const updated = (await dbStore.getStudents()).find(s => s.id === student.id);
+    res.json(updated);
+  });
+
+  // Delete Student (soft-deactivate)
+  app.delete('/api/students/:id', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const students = await dbStore.getStudents();
+    const student = students.find(s => s.id === req.params.id);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    const now = new Date().toISOString();
+    await dbStore.updateStudent(student.id, { status: 'inactive', updatedBy: user.email, updatedAt: now });
+
+    await dbStore.addLog({
+      id: 'log_' + Date.now(),
+      timestamp: now,
+      schoolId: student.schoolId,
+      schoolName: 'GPS',
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      activityType: 'verify',
+      status: 'Success',
+      details: `Deactivated student: ${student.name}`
+    });
+
+    res.json({ studentId: student.id, status: 'inactive' });
+  });
+
+  // Reactivate Student
+  app.post('/api/students/:id/reactivate', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const students = await dbStore.getStudents();
+    const student = students.find(s => s.id === req.params.id);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    const now = new Date().toISOString();
+    await dbStore.updateStudent(student.id, { status: 'active', updatedBy: user.email, updatedAt: now });
+
+    await dbStore.addLog({
+      id: 'log_' + Date.now(),
+      timestamp: now,
+      schoolId: student.schoolId,
+      schoolName: 'GPS',
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      activityType: 'verify',
+      status: 'Success',
+      details: `Reactivated student: ${student.name}`
+    });
+
+    res.json({ studentId: student.id, status: 'active' });
   });
 
   // Run Onboarding AI Diagnostic Test

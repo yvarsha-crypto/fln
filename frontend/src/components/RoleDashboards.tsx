@@ -174,6 +174,7 @@ const DISTRICT_NAMES: Record<string, string> = {
 interface DashboardProps {
   user: User;
   token: string;
+  onNavigate?: (view: string) => void;
 }
 
 // ==========================================
@@ -1538,7 +1539,7 @@ export const SchoolDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 // ==========================================
 // 4. TEACHER DASHBOARD
 // ==========================================
-export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
+export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token, onNavigate }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [activeClass, setActiveClass] = useState<ClassGroup | null>(null);
@@ -1815,7 +1816,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
             📖 59 FLN Framework
           </button>
           <button
-            onClick={() => setShowAddForm(!showAddForm)}
+            onClick={() => onNavigate ? onNavigate('register_student') : setShowAddForm(!showAddForm)}
             className="bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs font-mono px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
           >
             {showAddForm ? 'Close Form' : 'Register New Student'}
@@ -2184,7 +2185,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 // ==========================================
 // 5. VOLUNTEER DASHBOARD
 // ==========================================
-export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) => {
+export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token, onNavigate }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [activeClass, setActiveClass] = useState<ClassGroup | null>(null);
@@ -2458,7 +2459,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
             📖 59 FLN Framework
           </button>
           <button
-            onClick={() => setShowAddForm(!showAddForm)}
+            onClick={() => onNavigate ? onNavigate('register_student') : setShowAddForm(!showAddForm)}
             className="bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs font-mono px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
           >
             {showAddForm ? 'Close Form' : 'Register New Student'}

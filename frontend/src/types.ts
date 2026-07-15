@@ -55,6 +55,20 @@ export interface Student {
   aadharMasked: string;
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
   streak: number;
+  // Extended fields from student registration
+  studentId?: string;
+  studentName?: string;
+  dateOfBirth?: string;
+  gender?: 'male' | 'female' | 'other';
+  aadhaarNumber?: string;
+  parentName?: string;
+  status?: 'active' | 'inactive';
+  schoolCode?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+  class?: number;
 }
 
 export interface Question {
