@@ -19,6 +19,9 @@ import { LogbookView } from './components/LogbookView';
 import { TicketSubmission } from './components/TicketSubmission';
 import { AssessmentCalendar } from './components/AssessmentCalendar';
 import { PanelViews } from './components/PanelViews';
+import { RegisterStudentView } from './components/students/RegisterStudentView';
+import { RegisteredStudentsView } from './components/students/RegisteredStudentsView';
+import { BulkUploadView } from './components/students/BulkUploadView';
 import { ShieldCheck, Settings, Bell } from 'lucide-react';
 
 export default function App() {
@@ -280,8 +283,34 @@ export default function App() {
             </div>
           )}
 
+          {/* Student Registration panels */}
+          {activePanel === 'register_student' && (
+            <RegisterStudentView
+              user={currentUser}
+              token={token}
+              onNavigate={() => setActivePanel('registered_students')}
+            />
+          )}
+
+          {activePanel === 'registered_students' && (
+            <RegisteredStudentsView
+              user={currentUser}
+              token={token}
+              onNavigate={(view) => view === 'register_student' ? setActivePanel('register_student') : setActivePanel('bulk_upload')}
+            />
+          )}
+
+          {activePanel === 'bulk_upload' && (
+            <BulkUploadView
+              school={null}
+              activeClass={null}
+              token={token}
+              onBack={() => setActivePanel('registered_students')}
+            />
+          )}
+
           {/* Panel data views for all navigation items across roles */}
-          {!['workspace', 'logbook', 'tickets', 'calendar', 'settings', 'notifications'].includes(activePanel) && (
+          {!['workspace', 'logbook', 'tickets', 'calendar', 'settings', 'notifications', 'register_student', 'registered_students', 'bulk_upload'].includes(activePanel) && (
             <PanelViews activePanel={activePanel} currentUser={currentUser} token={token} />
           )}
         </Layout>
