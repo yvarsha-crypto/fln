@@ -119,9 +119,9 @@ export default function App() {
       case UserRole.SCHOOL:
         return <SchoolDashboard user={currentUser} token={token} />;
       case UserRole.TEACHER:
-        return <TeacherDashboard user={currentUser} token={token} />;
+        return <TeacherDashboard user={currentUser} token={token} onNavigate={(view) => setActivePanel(view)} />;
       case UserRole.VOLUNTEER:
-        return <VolunteerDashboard user={currentUser} token={token} />;
+        return <VolunteerDashboard user={currentUser} token={token} onNavigate={(view) => setActivePanel(view)} />;
       default:
         return <div className="p-8 text-center text-zinc-500">Unrecognized user role mapping.</div>;
     }

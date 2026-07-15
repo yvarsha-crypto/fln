@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Upload, AlertTriangle, CheckCircle, X, Download, Loader2, FileSpreadsheet, Info } from 'lucide-react';
 import { School, ClassGroup } from '../../types';
 import { studentAPI } from '../../api/students';
+import * as XLSX from 'xlsx';
 
 interface BulkUploadViewProps {
   school: School | null;
@@ -15,6 +16,7 @@ interface UploadRowResult {
   studentName: string;
   status: 'success' | 'error';
   message: string;
+  errors?: string[];
 }
 
 interface UploadResult {
@@ -24,12 +26,34 @@ interface UploadResult {
   details: UploadRowResult[];
 }
 
+interface PreviewRow {
+  name: string;
+  dob: string;
+  gender: string;
+  aadhaar: string;
+  parent: string;
+  classGroup: string;
+  section: string;
+}
+
+const EXPECTED_HEADERS = ['StudentName', 'DateOfBirth', 'Gender', 'AadhaarNumber', 'ParentName', 'Class', 'Section'];
+
+function getRowErrors(row: PreviewRow, idx: number): string[] {
+  const errs: string[] = [];
+  if (!row.name?.trim()) errs.push('StudentName is missing');
+  if (row.dob?.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(row.dob.trim())) errs.push('DateOfBirth must be YYYY-MM-DD format');
+  if (row.gender?.trim() && !['male', 'female', 'other'].includes(row.gender.trim().toLowerCase())) errs.push('Gender must be male, female, or other');
+  if (row.aadhaar?.trim() && !/^\d{12}$/.test(row.aadhaar.trim())) errs.push('AadhaarNumber must be exactly 12 digits');
+  if (!row.classGroup?.trim()) errs.push('Class is missing (e.g. 2, 3, 4)');
+  if (!row.section?.trim()) errs.push('Section is missing (e.g. A, B)');
+  return errs;
+}
+
 export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeClass, token, onBack }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [fileName, setFileName] = useState('');
-  const [fileData, setFileData] = useState<string[][] | null>(null);
-  const [previewRows, setPreviewRows] = useState<{ name: string; dob: string; gender: string; aadhaar: string; parent: string }[]>([]);
+  const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState('');
@@ -40,17 +64,50 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
 
   function reset() {
     setFileName('');
-    setFileData(null);
     setPreviewRows([]);
     setResult(null);
     setError('');
     if (fileRef.current) fileRef.current.value = '';
   }
 
+  function parseWorkbook(data: ArrayBuffer): PreviewRow[] {
+    const wb = XLSX.read(data, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json<any>(ws, { defval: '' });
+    if (json.length === 0) return [];
+    return json.map((r: any) => ({
+      name: String(r.StudentName ?? r.studentName ?? '').trim(),
+      dob: String(r.DateOfBirth ?? r.dateOfBirth ?? '').trim(),
+      gender: String(r.Gender ?? r.gender ?? '').trim(),
+      aadhaar: String(r.AadhaarNumber ?? r.aadhaarNumber ?? '').trim(),
+      parent: String(r.ParentName ?? r.parentName ?? '').trim(),
+      classGroup: String(r.Class ?? r.class ?? r.classGroup ?? '').trim(),
+      section: String(r.Section ?? r.section ?? '').trim()
+    }));
+  }
+
+  function parseCSV(text: string): PreviewRow[] {
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) return [];
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+    return lines.slice(1).map((line) => {
+      const vals = line.split(',').map(v => v.trim());
+      return {
+        name: vals[header.indexOf('studentname')] ?? '',
+        dob: vals[header.indexOf('dateofbirth')] ?? '',
+        gender: vals[header.indexOf('gender')] ?? '',
+        aadhaar: vals[header.indexOf('aadhaarnumber')] ?? '',
+        parent: vals[header.indexOf('parentname')] ?? '',
+        classGroup: vals[header.indexOf('class')] ?? '',
+        section: vals[header.indexOf('section')] ?? ''
+      };
+    });
+  }
+
   function handleFile(file: File | undefined) {
     if (!file) return;
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext !== 'csv' && ext !== 'xlsx') {
+    if (ext !== 'csv' && ext !== 'xlsx' && ext !== 'xls') {
       setError('Only .csv or .xlsx files are accepted.');
       return;
     }
@@ -58,32 +115,33 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
     setFileName(file.name);
     setResult(null);
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      const lines = text.split(/\r?\n/).filter(Boolean);
-      const parsed = lines.map((l) => l.split(','));
-      setFileData(parsed);
-      const rows = parsed.slice(1).filter((r) => r[0]?.trim()).map((r) => ({
-        name: r[0]?.trim() || '',
-        dob: r[1]?.trim() || '',
-        gender: r[2]?.trim() || '',
-        aadhaar: r[3]?.trim() || '',
-        parent: r[4]?.trim() || ''
-      }));
-      setPreviewRows(rows);
-    };
-    reader.onerror = () => setError('Failed to read file.');
-
     if (ext === 'csv') {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const text = ev.target?.result as string;
+        const rows = parseCSV(text);
+        setPreviewRows(rows);
+      };
+      reader.onerror = () => setError('Failed to read file.');
       reader.readAsText(file, 'UTF-8');
     } else {
-      setError('XLSX support requires the xlsx library. Please convert to CSV or install xlsx.');
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const data = ev.target?.result as ArrayBuffer;
+        try {
+          const rows = parseWorkbook(data);
+          setPreviewRows(rows);
+        } catch {
+          setError('Failed to parse XLSX file. Ensure it is a valid Excel workbook.');
+        }
+      };
+      reader.onerror = () => setError('Failed to read file.');
+      reader.readAsArrayBuffer(file);
     }
   }
 
   async function handleUpload() {
-    if (!fileData || previewRows.length === 0) return;
+    if (previewRows.length === 0) return;
     setSubmitting(true);
     setError('');
 
@@ -94,18 +152,29 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
     for (let i = 0; i < previewRows.length; i++) {
       const r = previewRows[i];
       const rowNum = i + 2;
-      if (!r.name) {
+      const fieldErrors = getRowErrors(r, i);
+
+      if (fieldErrors.length > 0) {
         errs++;
-        details.push({ row: rowNum, studentName: '', status: 'error', message: 'Name is required.' });
+        details.push({
+          row: rowNum,
+          studentName: r.name || '(no name)',
+          status: 'error',
+          message: fieldErrors.join('; '),
+          errors: fieldErrors
+        });
         continue;
       }
+
       try {
+        const classGroup = r.classGroup || (activeClass?.className || '');
+        const section = r.section || (activeClass?.section || '');
         const payload: any = {
           studentName: r.name,
-          dateOfBirth: r.dob,
-          gender: r.gender || 'male',
+          dateOfBirth: r.dob || undefined,
+          gender: r.gender?.toLowerCase() || 'male',
           schoolCode,
-          classGroup: activeClass ? `${activeClass.className}-${activeClass.section}` : undefined
+          classGroup: `${classGroup}-${section}`
         };
         if (r.aadhaar) payload.aadhaarNumber = r.aadhaar;
         if (r.parent) payload.parentName = r.parent;
@@ -115,7 +184,8 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
         details.push({ row: rowNum, studentName: r.name, status: 'success', message: `Created as ${data.id || 'ok'}` });
       } catch (e: any) {
         errs++;
-        details.push({ row: rowNum, studentName: r.name, status: 'error', message: e?.response?.data?.error || e?.message || 'API error' });
+        const apiMsg = e?.response?.data?.error || e?.message || 'API error';
+        details.push({ row: rowNum, studentName: r.name, status: 'error', message: apiMsg });
       }
     }
 
@@ -124,27 +194,33 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
   }
 
   function downloadSample() {
-    const header = 'StudentName,DateOfBirth,Gender,AadhaarNumber,ParentName';
-    const sample = 'Aarav Kumar,2016-05-12,male,123456789012,Sunita Kumar\nAnanya Sharma,2017-08-21,female,987654321098,Rajesh Sharma\n';
-    const bom = '\uFEFF';
-    const blob = new Blob([bom + header + '\n' + sample], { type: 'text/csv;charset=utf-8;' });
+    const ws = XLSX.utils.aoa_to_sheet([
+      EXPECTED_HEADERS,
+      ['Aarav Kumar', '2016-05-12', 'male', '123456789012', 'Sunita Kumar', '2', 'A'],
+      ['Ananya Sharma', '2017-08-21', 'female', '987654321098', 'Rajesh Sharma', '3', 'B']
+    ]);
+    ws['!cols'] = EXPECTED_HEADERS.map(() => ({ wch: 18 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Students');
+    const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'sample_students.csv';
+    a.download = 'sample_students.xlsx';
     a.click();
     URL.revokeObjectURL(url);
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-display font-semibold text-zinc-900 flex items-center gap-2">
             <Upload className="h-4 w-4 text-indigo-600" />
             Bulk Upload Students
           </h2>
-          <p className="text-xs text-zinc-500">Upload multiple students via CSV file (max 100 rows)</p>
+          <p className="text-xs text-zinc-500">Upload multiple students via XLSX or CSV file (max 100 rows)</p>
         </div>
         <button onClick={onBack} className="text-xs font-mono text-indigo-600 hover:text-indigo-800 hover:underline">Back</button>
       </div>
@@ -152,7 +228,7 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
       {!hasClass && (
         <div className="p-3 text-xs bg-amber-50 text-amber-800 rounded-lg border border-amber-100 flex items-center gap-2">
           <Info className="h-4 w-4 flex-shrink-0" />
-          Select a class before uploading. Students need an assigned class and school.
+          No class selected. Each row must provide Class and Section values.
         </div>
       )}
 
@@ -163,7 +239,7 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
           </div>
           <button onClick={downloadSample} className="text-[10px] font-mono font-bold text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1">
             <Download className="h-3 w-3" />
-            Sample CSV
+            Sample XLSX
           </button>
         </div>
 
@@ -178,8 +254,8 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
                 onClick={() => fileRef.current?.click()}
               >
                 <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 text-zinc-400" />
-                <p className="text-xs font-semibold text-zinc-700">Drop CSV file here or click to select</p>
-                <p className="text-[10px] text-zinc-400 mt-1">UTF-8 CSV with header row: StudentName,DateOfBirth,Gender,AadhaarNumber,ParentName</p>
+                <p className="text-xs font-semibold text-zinc-700">Drop XLSX/CSV file here or click to select</p>
+                <p className="text-[10px] text-zinc-400 mt-1">Headers: StudentName, DateOfBirth, Gender, AadhaarNumber, ParentName, Class, Section</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -190,32 +266,51 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
                   </button>
                 </div>
 
-                <div className="max-h-52 overflow-y-auto border border-zinc-200 rounded-lg">
-                  <table className="w-full text-[10px] font-mono">
-                    <thead className="bg-zinc-100 text-zinc-500 sticky top-0">
-                      <tr>
-                        <th className="text-left px-2 py-1.5">#</th>
-                        <th className="text-left px-2 py-1.5">Name</th>
-                        <th className="text-left px-2 py-1.5">DOB</th>
-                        <th className="text-left px-2 py-1.5">Gender</th>
-                        <th className="text-left px-2 py-1.5">Aadhaar</th>
-                        <th className="text-left px-2 py-1.5">Parent</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewRows.slice(0, 100).map((r, i) => (
-                        <tr key={i} className="border-t border-zinc-100 hover:bg-zinc-50">
-                          <td className="px-2 py-1 text-zinc-400">{i + 2}</td>
-                          <td className="px-2 py-1">{r.name}</td>
-                          <td className="px-2 py-1">{r.dob}</td>
-                          <td className="px-2 py-1">{r.gender}</td>
-                          <td className="px-2 py-1 max-w-[80px] truncate">{r.aadhaar}</td>
-                          <td className="px-2 py-1">{r.parent}</td>
+                {previewRows.length > 0 && (
+                  <div className="max-h-60 overflow-y-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-[10px] font-mono">
+                      <thead className="bg-zinc-100 text-zinc-500 sticky top-0">
+                        <tr>
+                          <th className="text-left px-2 py-1.5">#</th>
+                          <th className="text-left px-2 py-1.5">Name</th>
+                          <th className="text-left px-2 py-1.5">DOB</th>
+                          <th className="text-left px-2 py-1.5">Gender</th>
+                          <th className="text-left px-2 py-1.5">Aadhaar</th>
+                          <th className="text-left px-2 py-1.5">Parent</th>
+                          <th className="text-left px-2 py-1.5">Class</th>
+                          <th className="text-left px-2 py-1.5">Section</th>
+                          <th className="text-left px-2 py-1.5">Issues</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {previewRows.slice(0, 100).map((r, i) => {
+                          const issues = getRowErrors(r, i);
+                          return (
+                            <tr key={i} className={`border-t border-zinc-100 hover:bg-zinc-50 ${issues.length > 0 ? 'bg-rose-50/40' : ''}`}>
+                              <td className="px-2 py-1 text-zinc-400">{i + 2}</td>
+                              <td className="px-2 py-1">{r.name || <span className="text-rose-400">(missing)</span>}</td>
+                              <td className="px-2 py-1">{r.dob || '\u2014'}</td>
+                              <td className="px-2 py-1">{r.gender || '\u2014'}</td>
+                              <td className="px-2 py-1 max-w-[80px] truncate">{r.aadhaar || '\u2014'}</td>
+                              <td className="px-2 py-1">{r.parent || '\u2014'}</td>
+                              <td className="px-2 py-1">{r.classGroup || <span className="text-rose-400">(missing)</span>}</td>
+                              <td className="px-2 py-1">{r.section || <span className="text-rose-400">(missing)</span>}</td>
+                              <td className="px-2 py-1">
+                                {issues.length > 0 ? (
+                                  <span className="text-rose-600 font-semibold" title={issues.join('\n')}>
+                                    {issues.length} issue{issues.length > 1 ? 's' : ''}
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-500">\u2713</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
                 <button
                   onClick={handleUpload}
@@ -227,7 +322,7 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
                 </button>
               </div>
             )}
-            <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
           </div>
         ) : (
           <div className="p-5 space-y-4">
@@ -248,7 +343,7 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
             </div>
 
             {result.details.some((d) => d.status === 'error') && (
-              <div className="max-h-48 overflow-y-auto border border-rose-200 rounded-lg">
+              <div className="max-h-56 overflow-y-auto border border-rose-200 rounded-lg">
                 <table className="w-full text-[10px] font-mono">
                   <thead className="bg-rose-50 text-rose-700 sticky top-0">
                     <tr>
@@ -261,10 +356,10 @@ export const BulkUploadView: React.FC<BulkUploadViewProps> = ({ school, activeCl
                   <tbody>
                     {result.details.filter((d) => d.status === 'error').map((d, i) => (
                       <tr key={i} className="border-t border-rose-100 text-rose-800">
-                        <td className="px-2 py-1">{d.row}</td>
-                        <td className="px-2 py-1">{d.studentName}</td>
-                        <td className="px-2 py-1 font-bold">Error</td>
-                        <td className="px-2 py-1">{d.message}</td>
+                        <td className="px-2 py-1 align-top">{d.row}</td>
+                        <td className="px-2 py-1 align-top">{d.studentName}</td>
+                        <td className="px-2 py-1 align-top font-bold">Error</td>
+                        <td className="px-2 py-1 align-top whitespace-pre-wrap">{d.message}</td>
                       </tr>
                     ))}
                   </tbody>
